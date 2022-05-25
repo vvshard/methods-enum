@@ -1,11 +1,6 @@
-#![allow(unused)]
-
-use std::str::FromStr;
-
-use proc_macro::TokenTree::{Group, Ident, Literal, Punct};
-use proc_macro::{Delimiter, Span, TokenStream};
-
 // region: debug
+
+#![allow(unused)]
 
 fn unvrap_ts(ts: TokenStream, lvl: usize) {
     for tt in ts {
@@ -61,7 +56,47 @@ fn gen_duppy() -> TokenStream {
     .unwrap()
 }
 
+fn gen_duppy2() -> TokenStream {
+    TokenStream::from_str(stringify!(
+        #[derive(Debug)]
+        #[allow(non_camel_case_types)]
+        enum Meth<'a> {
+            add_text(&'a str),
+            content(),
+            request_review(),
+            approve(),
+        }
+
+        impl Post {
+            #[allow(unused_must_use)]
+            pub fn add_text(&mut self, text: &str){
+                self.maintain_methods(Meth::add_text(text));
+            }
+            /// content...
+            pub fn content(&mut self) -> &str {
+                self.maintain_methods(Meth::content())
+            }
+            #[allow(unused_must_use)]
+            pub fn request_review(&mut self) {
+                self.maintain_methods(Meth::request_review());
+            }
+            pub fn approve(&mut self){
+                self.maintain_methods(Meth::approve());
+            }
+
+
+        }
+
+    ))
+    .unwrap()
+}
+
 // endregion: debug
+
+use std::str::FromStr;
+
+use proc_macro::TokenTree::{Group, Ident, Literal, Punct};
+use proc_macro::{Delimiter, Span, TokenStream};
 
 #[proc_macro_attribute]
 pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
@@ -70,7 +105,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     println!("item: \"{}\"", item_ts.to_string());
     unvrap_ts(item_ts.clone(), 0);
 
-    let ts = gen_duppy();
+    let ts = gen_duppy2();
     println!("{}", ts.to_string());
 
     ts
