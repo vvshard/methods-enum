@@ -52,8 +52,8 @@ fn gen_duppy2() -> TokenStream {
             approve(),
         }
 
+        #[allow(unused_must_use)]
         impl Post {
-            #[allow(unused_must_use)]
             pub fn add_text(&mut self, text: &str){
                 self.maintain_methods(Meth::add_text(text));
             }
@@ -61,7 +61,6 @@ fn gen_duppy2() -> TokenStream {
             pub fn content(&mut self) -> &str {
                 self.maintain_methods(Meth::content())
             }
-            #[allow(unused_must_use)]
             pub fn request_review(&mut self) {
                 self.maintain_methods(Meth::request_review());
             }
