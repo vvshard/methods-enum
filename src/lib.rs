@@ -7,37 +7,35 @@ use proc_macro::{Delimiter, TokenStream};
 struct Attr {
     enum_name: String,
     run_method: String,
-    out: String,
 }
 impl Attr {
     fn new(attr_ts: TokenStream) -> Attr {
         let mut attr_it = attr_ts.into_iter();
-        match [
-            attr_it.next(),
-            attr_it.next(),
-            attr_it.next(),
-            attr_it.next(),
-            attr_it.next(),
-        ] {
-            [Some(Ident(enum_n)), Some(Punct(p0)), Some(Ident(run_method)), None, None]
+        match [attr_it.next(), attr_it.next(), attr_it.next()] {
+            [Some(Ident(enum_n)), Some(Punct(p0)), Some(Ident(run_method))]
                 if p0.to_string() == ":" =>
             {
                 Attr {
                     enum_name: enum_n.to_string(),
                     run_method: run_method.to_string(),
-                    out: String::new(),
-                }
-            }
-            [Some(Ident(enum_n)), Some(Punct(p0)), Some(Ident(run_method)), Some(Punct(p1)), Some(Ident(out))]
-                if p0.to_string() == ":" && p1.to_string() == "=" =>
-            {
-                Attr {
-                    enum_name: enum_n.to_string(),
-                    run_method: run_method.to_string(),
-                    out: out.to_string(),
                 }
             }
             _ => panic!("syntax error in attribute #[methods_enum::gen(?? "),
+        }
+    }
+}
+
+fn unvrap_ts(ts: TokenStream, lvl: usize) {
+    for tt in ts {
+        let indent = "  ".repeat(lvl);
+        match tt {
+            Group(gr) => {
+                println!("{indent}Group({:?})-", gr.delimiter());
+                unvrap_ts(gr.stream(), lvl + 1);
+            }
+            Ident(id) => println!("{indent}Ident:{id}"),
+            proc_macro::TokenTree::Literal(id) => println!("{indent}Literal:'{id}'"),
+            Punct(id) => println!("{indent}Punct:'{id}'"),
         }
     }
 }
@@ -46,8 +44,8 @@ impl Attr {
 pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     // println!("attr_ts: \"{}\"", attr_ts.to_string());
     // unvrap_ts(attr_ts.clone(), 0);
-    // println!("item_ts: \"{}\"", item_ts.to_string());
-    // unvrap_ts(item_ts.clone(), 0);
+    println!("item_ts: \"{}\"", item_ts.to_string());
+    unvrap_ts(item_ts.clone(), 0);
 
     let attr = Attr::new(attr_ts);
 
@@ -75,7 +73,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
     let mut impl_ts = TokenStream::new();
     let mut enum_s = String::new();
-    let call_run_method =
+    let call_run_pattern =
         "self.".to_string() + &attr.run_method + "(" + &attr.enum_name + "::$meth($params))";
 
     // metods loop
@@ -114,10 +112,9 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             _ => true,
         });
 
+        // args loop
         let mut lg = 0;
         let mut first = true;
-
-        // args loop
         loop {
             match args_it.next() {
                 Some(Punct(p)) if p.to_string() == "," && lg == 0 => {
@@ -145,16 +142,12 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
         enum_s += "), ";
 
-        let mut call_run = call_run_method.replace("$meth", &meth);
+        let mut call_run = call_run_pattern.replace("$meth", &meth);
         call_run = call_run.replace("$params", &params);
         if let None = sign_it.next() {
             call_run += ";"
         } else if !bodi.is_empty() {
-            call_run = if attr.out.is_empty() {
-                bodi
-            } else {
-                bodi.replace(&attr.out, &call_run)
-            };
+            call_run = bodi.replace("__", &call_run)
         }
 
         impl_ts.extend(TokenStream::from(Group(proc_macro::Group::new(
@@ -186,8 +179,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         impl_ts,
     ))));
 
-    // println!("out_ts: \"{}\"", out_ts.to_string());
+    println!("out_ts: \"{}\"", out_ts.to_string());
 
     out_ts
 }
-
