@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use proc_macro::Group as SctGroup;
 use proc_macro::TokenTree::{Group, Ident, Punct};
 use proc_macro::{Delimiter, TokenStream};
 
@@ -78,27 +79,32 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
     // metods loop
     loop {
-        let mut bodi = String::new();
-        let first_ts: TokenStream = impl_it
-            .by_ref()
-            .take_while(|tt| match tt {
-                Punct(p) if p.to_string() == ";" => false,
-                Group(gr) if gr.delimiter() == Delimiter::Brace => {
-                    bodi = gr.stream().to_string();
-                    false
-                }
-                _ => true,
-            })
-            .collect();
-        impl_ts.extend(first_ts.clone());
+        let first_ts = match impl_it.try_fold(TokenStream::new(), |mut ts, tt| match tt {
+            Punct(p) if p.to_string() == ";" => Err((ts, true)),
+            Group(ref gr) if gr.delimiter() == Delimiter::Brace => {
+                ts.extend(TokenStream::from(tt));
+                Err((ts, false))
+            }
+            _ => {
+                ts.extend(TokenStream::from(tt));
+                Ok(ts)
+            }
+        }) {
+            Err((ts, true)) => {
+                impl_ts.extend(ts.clone());
+                ts
+            }
+            Err((ts, false)) => {
+                impl_ts.extend(ts);
+                continue;
+            }
+            Ok(_ts) => break,
+        };
         let mut sign_it = first_ts.into_iter().skip_while(|tt| match tt {
             Ident(id) if id.to_string() == "fn" => false,
             _ => true,
         });
-        let span = match sign_it.next() {
-            Some(Ident(id)) if id.to_string() == "fn" => id.span(),
-            _ => break,
-        };
+        let span = sign_it.next().unwrap().span();
         let (meth, args_gr) = match [sign_it.next(), sign_it.next()] {
             [Some(Ident(n)), Some(Group(gr))] if gr.delimiter() == Delimiter::Parenthesis => {
                 (n.to_string(), gr)
@@ -146,11 +152,9 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         call_run = call_run.replace("$params", &params);
         if let None = sign_it.next() {
             call_run += ";"
-        } else if !bodi.is_empty() {
-            call_run = bodi.replace("__", &call_run)
         }
 
-        impl_ts.extend(TokenStream::from(Group(proc_macro::Group::new(
+        impl_ts.extend(TokenStream::from(Group(SctGroup::new(
             Delimiter::Brace,
             TokenStream::from_str(&call_run).unwrap(),
         ))));
@@ -160,7 +164,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         enum_s = enum_s.replace('&', "&'a ");
         out_ts.extend(TokenStream::from_str("<'a>").unwrap());
     }
-    out_ts.extend(TokenStream::from(Group(proc_macro::Group::new(
+    out_ts.extend(TokenStream::from(Group(SctGroup::new(
         Delimiter::Brace,
         TokenStream::from_str(&enum_s).unwrap(),
     ))));
@@ -174,7 +178,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         )
         .unwrap(),
     );
-    out_ts.extend(TokenStream::from(Group(proc_macro::Group::new(
+    out_ts.extend(TokenStream::from(Group(SctGroup::new(
         Delimiter::Brace,
         impl_ts,
     ))));

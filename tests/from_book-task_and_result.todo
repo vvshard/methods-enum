@@ -72,7 +72,7 @@ mod blog {
                 State::Draft => match method {
                     Meth::add_text(text) => {
                         self.content.push_str(text);
-                        Ok("")
+                        Ok(&self.content)
                     }
                     Meth::request_review() => {
                         self.state = State::PendingReview {

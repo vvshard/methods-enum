@@ -32,10 +32,7 @@ mod blog {
         pub fn request_review(&mut self);
         pub fn approve(&mut self);
         pub fn content(&mut self) -> &str;
-    }
 
-    impl Post {
-        #[rustfmt::skip]
         fn run_methods(&mut self, method: Meth) -> &str {
             match self.state {
                 State::Draft => match method {
