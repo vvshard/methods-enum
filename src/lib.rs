@@ -1,8 +1,7 @@
 use std::str::FromStr;
 
-use proc_macro::Group as SctGroup;
 use proc_macro::TokenTree::{Group, Ident, Punct};
-use proc_macro::{Delimiter, TokenStream};
+use proc_macro::{Delimiter, Group as SctGroup, TokenStream};
 
 #[derive(Debug, PartialEq)]
 struct Attr {
@@ -26,6 +25,14 @@ impl Attr {
     }
 }
 
+//for debug
+#[allow(unused)]
+fn print_ts(attr_ts: TokenStream, item_ts: TokenStream){
+    println!("attr_ts: \"{}\"", attr_ts.to_string());
+    unvrap_ts(attr_ts.clone(), 0);
+    println!("item_ts: \"{}\"", item_ts.to_string());
+    unvrap_ts(item_ts.clone(), 0);
+}
 fn unvrap_ts(ts: TokenStream, lvl: usize) {
     for tt in ts {
         let indent = "  ".repeat(lvl);
@@ -43,14 +50,11 @@ fn unvrap_ts(ts: TokenStream, lvl: usize) {
 
 #[proc_macro_attribute]
 pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
-    // println!("attr_ts: \"{}\"", attr_ts.to_string());
-    // unvrap_ts(attr_ts.clone(), 0);
-    println!("item_ts: \"{}\"", item_ts.to_string());
-    unvrap_ts(item_ts.clone(), 0);
+    // print_ts(attr_ts, item_ts);
 
     let attr = Attr::new(attr_ts);
 
-    let mut out_ts = TokenStream::from_str(
+    let mut result_ts = TokenStream::from_str(
         &("
         #[derive(Debug)] 
         #[allow(non_camel_case_types)]
@@ -72,8 +76,8 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         _ => panic!("syntax error: 'this attribute must be set on block impl'"),
     };
 
-    let mut impl_ts = TokenStream::new();
     let mut enum_s = String::new();
+    let mut impl_ts = TokenStream::new();
     let call_run_pattern =
         "self.".to_string() + &attr.run_method + "(" + &attr.enum_name + "::$meth($params))";
 
@@ -98,18 +102,32 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                 impl_ts.extend(ts);
                 continue;
             }
-            Ok(_ts) => break,
+            Ok(_) => break,
         };
         let mut sign_it = first_ts.into_iter().skip_while(|tt| match tt {
             Ident(id) if id.to_string() == "fn" => false,
             _ => true,
         });
-        let span = sign_it.next().unwrap().span();
+        let _span = sign_it.next().unwrap().span();
         let (meth, args_gr) = match [sign_it.next(), sign_it.next()] {
             [Some(Ident(n)), Some(Group(gr))] if gr.delimiter() == Delimiter::Parenthesis => {
                 (n.to_string(), gr)
             }
-            _ => panic!("syntax error: {:?}", span),
+            [Some(Ident(n)), Some(Punct(p))] if p.to_string() == "<" => panic!(
+                "Generic types in macro '#[methods_enum::gen()]' are not supported: fn {}()",
+                n
+            ),
+            _ => {
+                let enum_options: Vec<_> = enum_s.rsplit(&['(', ')'][..]).collect();
+                panic!(
+                    "Syntax error in macro '#[methods_enum::gen()]' {}",
+                    if enum_options.len() == 1 {
+                        "in first fn".to_string()
+                    } else {
+                        format!("after fn {}()", enum_options[2])
+                    }
+                )
+            }
         };
         enum_s = enum_s + &meth + "(";
         let mut params = String::new();
@@ -162,13 +180,13 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
     if enum_s.contains('&') {
         enum_s = enum_s.replace('&', "&'a ");
-        out_ts.extend(TokenStream::from_str("<'a>").unwrap());
+        result_ts.extend(TokenStream::from_str("<'a>").unwrap());
     }
-    out_ts.extend(TokenStream::from(Group(SctGroup::new(
+    result_ts.extend(TokenStream::from(Group(SctGroup::new(
         Delimiter::Brace,
         TokenStream::from_str(&enum_s).unwrap(),
     ))));
-    out_ts.extend(
+    result_ts.extend(
         TokenStream::from_str(
             &("
         #[allow(unused_must_use)]
@@ -178,12 +196,13 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         )
         .unwrap(),
     );
-    out_ts.extend(TokenStream::from(Group(SctGroup::new(
+    result_ts.extend(TokenStream::from(Group(SctGroup::new(
         Delimiter::Brace,
         impl_ts,
     ))));
 
-    println!("out_ts: \"{}\"", out_ts.to_string());
+    // println!("out_ts: \"{}\"", out_ts.to_string());
 
-    out_ts
+    result_ts
 }
+
