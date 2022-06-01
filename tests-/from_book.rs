@@ -26,7 +26,7 @@ mod blog {
         content: String,
     }
 
-    #[methods_enum::gen(Meth: run_methods)]
+    #[methods_enum::gen(?Meth: run_methods)]
     impl Post {
         pub fn add_text(&mut self, text: &str);
         pub fn request_review(&mut self);
