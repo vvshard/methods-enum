@@ -12,13 +12,8 @@ enum Message {
     Report,
 }
 use Message::{Error, Report, Warning};
-impl Default for Message {
-    fn default() -> Self {
-        Report
-    }
-}
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Messg {
     typ: Message,
     info: String,
@@ -93,6 +88,19 @@ impl Attr {
             None => self.def_name.clone(),
         }
     }
+    fn def_arm(&self, out: &str) -> String {
+        if out.starts_with("Result") {
+            match self.def_type {
+                Some(_) => format!("{}(x) => Err(x),", self.def_name),
+                None => format!("{} => Err(()),", self.def_name),
+            }
+        } else {
+            match self.def_type {
+                Some(_) => format!("{}(_) => <{out}>::default(),", self.def_name),
+                None => format!("{} => <{out}>::default(),", self.def_name),
+            }
+        }
+    }
     fn err_in(&self) -> String {
         format!(
             "syntax error in attribute #[methods_enum::gen({}:{}",
@@ -109,48 +117,51 @@ impl Attr {
 #[derive(Debug, Default)]
 struct Meth {
     name: String,
+    span: Option<proc_macro::Span>,
     ts: TokenStream,
     out: TokenStream,
-    body: Option<TokenStream>,
+    body: TokenStream,
     params: String,
     typs: String,
 }
 impl Meth {
-    fn args(&mut self, tt: TokenTree) -> Result<(), String> {
-        match tt {
-            Group(ref gr) => {
-                let mut args_it = gr.stream().into_iter();
-                let mut lg = 0;
-                let mut first = true;
-                loop {
-                    match args_it.next() {
-                        Some(Punct(p)) if p.to_string() == "," && lg == 0 => {
-                            match [args_it.next(), args_it.next()] {
-                                [Some(Ident(id)), Some(Punct(p))] if p.to_string() == ":" => {
-                                    if first {
-                                        first = false;
-                                    } else {
-                                        self.params += ", ";
-                                        self.typs += ", ";
-                                    }
-                                    self.params += &id.to_string();
-                                }
-                                _ => break,
+    fn args(&mut self, gr: SctGroup) -> Result<(), String> {
+        let mut args_it = gr.stream().into_iter();
+        let mut lg = 0;
+        let mut first = true;
+        self.params = String::new();
+        self.typs = String::new();
+        loop {
+            match args_it.next() {
+                Some(Punct(p)) if p.to_string() == "," && lg == 0 => {
+                    match [args_it.next(), args_it.next()] {
+                        [Some(Ident(id)), Some(Punct(p))] if p.to_string() == ":" => {
+                            if first {
+                                first = false;
+                            } else {
+                                self.params += ", ";
+                                self.typs += ", ";
                             }
+                            self.params += &id.to_string();
                         }
-                        Some(Punct(p)) if "<>".contains(&p.to_string()) => {
-                            lg = lg + if p.to_string() == "<" { 1 } else { -1 };
-                            self.typs += &p.to_string();
-                        }
-                        None => break,
-                        Some(tt) => self.typs += &tt.to_string(),
-                    };
-                } // args loop
-                self.ts.extend([tt]);
-                Ok(())
-            }
-            _ => Err("(Group) must be transferred".to_string()),
+                        [Some(tt), _] => return Err(tt.to_string()),
+                        [None, _] => break,
+                    }
+                }
+                Some(Punct(p)) if "<>".contains(&p.to_string()) => {
+                    lg = lg + if p.to_string() == "<" { 1 } else { -1 };
+                    self.typs += &p.to_string();
+                }
+                Some(Ident(id)) if id.to_string() == "impl" => {
+                    return Err("generalized arg: 'impl'".to_string())
+                }
+                Some(tt) if !first => self.typs += &tt.to_string(),
+                None => break,
+                _ => (),
+            };
         }
+        self.ts.extend([Group(gr)]);
+        Ok(())
     }
 }
 
@@ -179,10 +190,10 @@ fn unvrap_ts(ts: TokenStream, lvl: usize) {
 
 #[proc_macro_attribute]
 pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
-    print_ts(&attr_ts, &item_ts);
+    // print_ts(&attr_ts, &item_ts);
 
     let mut attr = Attr::new(attr_ts);
-    dbg!(&attr);
+    // dbg!(&attr);
 
     let mut item_it = item_ts.into_iter();
 
@@ -190,9 +201,10 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         Ident(id) if id.to_string() == "impl" => false,
         _ => true,
     }));
-    // if no_impl {
-    //     panic!("syntax error: 'this attribute must be set on block impl'")
-    // }
+    result_ts.extend([Ident(proc_macro::Ident::new(
+        "impl",
+        proc_macro::Span::call_site(),
+    ))]);
 
     let (item_name, mut impl_it, impl_span) = match [item_it.next(), item_it.next(), item_it.next()]
     {
@@ -201,12 +213,12 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             result_ts.extend([Ident(item_n)]);
             (item_name, gr.stream().into_iter(), gr.span())
         }
-        m => panic!("SYNTAX ERROR: 'this attribute must be set on block impl': {m:?}"),
+        m => panic!("SYNTAX ERROR: 'this attribute must be set on block impl without treyds and generics': {m:?}"),
     };
 
-    let mut diagnostics: Vec<Message> = Vec::new();
-    let mut metods: Vec<Meth> = Vec::new();
+    let mut methods: Vec<Meth> = Vec::new();
 
+    #[derive(Clone, Copy)]
     enum ParseStates {
         Stop,
         Start,
@@ -217,106 +229,92 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         Out,
     }
     use ParseStates::*;
-    // metods loop
+    // filling for methods
     let tail = loop {
         match impl_it.try_fold((Start, Meth::default()), |(state, mut m), tt| {
             match (state, tt) {
-                (Start, Ident(ref id)) if id.to_string() == "fn" => {
-                    m.ts.extend([tt]);
+                (Start, Ident(id)) if id.to_string() == "fn" => {
+                    m.ts.extend([Ident(id)]);
                     Ok((Name, m))
                 }
-                (Name, Ident(ref id)) => {
-                    let nm = id.to_string();
-                    m.ts.extend([tt]);
-                    if nm == attr.run_method {
+                (Name, Ident(id)) => {
+                    m.name = id.to_string();
+                    m.span = Some(id.span());
+                    m.ts.extend([Ident(id)]);
+                    if m.name == attr.run_method {
                         Err((Stop, m))
                     } else {
-                        m.name = nm;
                         Ok((Args, m))
                     }
                 }
-                (Args, Group(ref gr)) if gr.delimiter() == Delimiter::Parenthesis => {
-                    match m.args(tt) {
-                        Ok(_) => Ok((Minus, m)),
-                        Err(mess) => {
-                            attr.diagn(Report, format!("skip fn {}: args: {}", m.name, mess));
-                            Ok((Start, m))
-                        }
+                (Args, Group(gr)) if gr.delimiter() == Delimiter::Parenthesis => match m.args(gr) {
+                    Ok(_) => Ok((Minus, m)),
+                    Err(mess) => {
+                        attr.diagn(Report, format!("skip fn {}: args: {}", m.name, mess));
+                        Ok((Start, m))
                     }
-                }
-                (Minus, Punct(ref p)) if p.to_string() == "-" => {
-                    m.ts.extend([tt]);
+                },
+                (Minus, Punct(p)) if p.to_string() == "-" => {
+                    m.ts.extend([Punct(p)]);
                     Ok((Lg, m))
                 }
-                (Lg, Punct(ref p)) if p.to_string() == ">" => {
-                    m.ts.extend([tt]);
+                (Lg, Punct(p)) if p.to_string() == ">" => {
+                    m.ts.extend([Punct(p)]);
                     Ok((Out, m))
                 }
-                (Out, Ident(ref id)) if id.to_string() == "where" => {
-                    attr.diagn(
-                        Report,
-                        format!("skip fn {}: \"where\" - generic method", m.name),
-                    );
-                    m.ts.extend([tt]);
+                (Out, Ident(id)) if id.to_string() == "where" => {
+                    // skip the generalized fn
+                    m.ts.extend([Ident(id)]);
                     m.out = TokenStream::new();
                     Ok((Start, m))
                 }
                 (Minus | Out, Punct(p)) if p.to_string() == ";" => Err((state, m)),
-                (Minus | Out, Group(ref gr))
+                (Minus | Out, Group(gr))
                     if gr.delimiter() == Delimiter::Brace && attr.def_name.is_empty() =>
                 {
-                    attr.diagn(
-                        Report,
-                        format!("skip fn {}: no default option specified", m.name),
-                    );
-                    m.ts.extend([tt]);
+                    // skip fn with body
+                    m.ts.extend([Group(gr)]);
                     m.out = TokenStream::new();
                     Ok((Start, m))
                 }
-                (Minus | Out, Group(ref gr)) if gr.delimiter() == Delimiter::Brace => {
+                (Minus | Out, Group(gr)) if gr.delimiter() == Delimiter::Brace => {
                     let mut gr_it = gr.stream().into_iter();
-                    match [gr_it.next(), gr_it.next(), gr_it.next()] {
-                        a @ [Some(Ident(def_n)), Some(Group(_)), Some(Punct(p))]
-                        | a @ [Some(Ident(def_n)), Some(Punct(p)), Some(_)]
-                            if def_n.to_string() == attr.def_name && p.to_string() == "=" =>
-                        // replacing '=' with '=>' in body
+                    let a = [gr_it.next(), gr_it.next(), gr_it.next()];
+                    match a {
+                        [Some(Ident(ref def_n)), Some(Group(_)), Some(Punct(ref p))]
+                        | [Some(Ident(ref def_n)), Some(Punct(ref p)), Some(_)]
+                            if def_n.to_string() == attr.def_name
+                                && p.to_string() == "="
+                                && p.spacing() == Spacing::Alone =>
                         {
-                            let u = match a[1] {
-                                Some(Punct(_)) => 1,
-                                _ => 2,
-                            };
+                            // replacing '=' with '=>' in the body
                             let mut body =
-                                TokenStream::from_iter(a.into_iter().take(u).map(|ot| ot.unwrap()));
-                            body.extend([
-                                Punct(SctPunct::new('=', Spacing::Joint)),
-                                Punct(SctPunct::new('>', Spacing::Alone)),
-                            ]);
-                            if u == 2 {
-                                body.extend([a[2].unwrap()]);
-                            }
+                                TokenStream::from_iter(a.into_iter().flat_map(|optt| match optt {
+                                    Some(Punct(p)) if p.to_string() == "=" => vec![
+                                        Punct(SctPunct::new('=', Spacing::Joint)),
+                                        Punct(SctPunct::new('>', Spacing::Alone)),
+                                    ],
+                                    _ => vec![optt.unwrap()],
+                                }));
                             body.extend(gr_it);
-                            m.body = Some(body);
+                            m.body = body;
                             Err((state, m))
                         }
 
                         _ => {
-                            attr.diagn(Report,format!(
-                                    "skip fn {}: no default option in body",
-                                    m.name
-                                ));
-                            m.ts.extend([tt]);
+                            // skips fn with a body starting not with the default option
+                            m.ts.extend([Group(gr)]);
                             m.out = TokenStream::new();
                             Ok((Start, m))
                         }
                     }
                 }
-
-                (Out, _) => {
+                (Out, tt) => {
                     m.out.extend((TokenStream::from(tt.clone())));
                     m.ts.extend([tt]);
                     Ok((state, m))
                 }
-                _ => {
+                (_, tt) => {
                     if let Start = state {
                     } else {
                         attr.diagn(Report, format!("skip fn {}: {}", m.name, tt.to_string()));
@@ -327,43 +325,98 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             }
         }) {
             Ok((_, m)) | Err((Stop, m)) => break m.ts,
-            Err((_, m)) => metods.push(m),
+            Err((_, m)) => methods.push(m),
         };
-    }; // metods loop
+    }; // filling for methods
 
-    enum_s = enum_s + &meth + "(";
-    let mut params = String::new();
-    let mut args_it = args_gr.stream().into_iter().skip_while(|tt| match tt {
-        Punct(p) if p.to_string() == "," => false,
-        _ => true,
-    });
+    // println!("methods: {:#?}", methods);
+
+
+    let mut options = String::new();
+    //                  (name, out)
+    let mut outs: Vec<(String, String)> = Vec::new();
+    let mut no_out = "";
+    for m in methods.iter() {
+        options = options + &m.name + "(" + &m.typs + "), ";
+        if !attr.out_name.is_empty() {
+            if m.out.is_empty() {
+                no_out = "__(()), ";
+            } else {
+                outs.push((m.name.clone(), m.out.to_string()));
+            }
+        }
+    }
 
     let self_run_enum = format!("self.{}({}::", attr.run_method, attr.enum_name);
 
-    if enum_s.contains('&') {
-        enum_s = enum_s.replace('&', "&'a ");
-        result_ts.extend(TokenStream::from_str("<'a>").unwrap());
-    }
-    result_ts.extend([Group(SctGroup::new(
-        Delimiter::Brace,
-        TokenStream::from_str(&enum_s).unwrap(),
-    ))]);
-    result_ts.extend(
-        TokenStream::from_str(
-            &("
-        #[allow(unused_must_use)]
-        impl "
-                .to_string()
-                + &item_name),
-        )
-        .unwrap(),
-    );
-    result_ts.extend([Group(SctGroup::new(Delimiter::Brace, impl_ts))]);
+    let mut metods_ts = TokenStream::new();
+    for m in methods {
+        metods_ts.extend(m.ts);
+        let call_run = format!("{self_run_enum}{}({}))", m.name, m.params);
+        let mut body_ts = match m.out.is_empty() {
+            true => TokenStream::from_str("#![allow(unused_must_use)]").unwrap(),
+            false => TokenStream::new(),
+        };
+        if attr.out_name.is_empty() || m.out.is_empty() {
+            body_ts.extend(TokenStream::from_str(&call_run).unwrap());
+            if m.out.is_empty() {
+                body_ts.extend([Punct(SctPunct::new(';', Spacing::Alone))]);
+            }
+        } else {
+            let out = m.out.to_string();
+            let lside = (outs.iter())
+                .filter_map(|(n, o)| (o == &out).then(|| n.clone() + "(x)"))
+                .reduce(|s, n| s + " | " + &n)
+                .unwrap();
+            let mut match_ts = TokenStream::from_str(&format!("{lside} => x,")).unwrap();
+            if m.body.is_empty() {
+                match_ts.extend(TokenStream::from_str(&attr.def_arm(&out)).unwrap());
+            } else {
+                match_ts.extend(m.body);
+            }
+            match_ts.extend(TokenStream::from_str("_ => panic!(\"type mismatch\")").unwrap());
 
-    if attr.dbg {
-        println!("diagnostics: \"{}\"", diagnostics);
+            body_ts.extend(TokenStream::from_str(&format!("match {call_run}")).unwrap());
+            body_ts.extend([Group(SctGroup::new(Delimiter::Brace, match_ts))]);
+        }
+        metods_ts.extend([Group(SctGroup::new(Delimiter::Brace, body_ts))]);
+    }
+
+    metods_ts.extend(tail);
+    metods_ts.extend(impl_it);
+
+    result_ts.extend([Group(SctGroup::new(Delimiter::Brace, metods_ts))]);
+
+    // enum / enums
+    result_ts.extend(TokenStream::from_str("#[derive(Debug)]").unwrap());
+    add_enum(&mut result_ts, &attr.enum_name, options);
+
+    if !attr.out_name.is_empty() {
+        options = (outs.iter()).fold(String::new(), |s, (name, out)| s + name + "(" + out + "), ")
+            + no_out
+            + &attr.def_opt();
+        add_enum(&mut result_ts, &attr.out_name, options);
+    }
+
+    if attr.dbg > "" {
+        println!("diagnostics: \"{:?}\"", attr.diagnostics);
         println!("result_ts: \"{}\"", result_ts);
     }
 
     result_ts
+}
+
+fn add_enum(ts: &mut TokenStream, name: &str, mut options: String) {
+    ts.extend(
+        TokenStream::from_str(&("#[allow(non_camel_case_types)] enum ".to_string() + name))
+            .unwrap(),
+    );
+    if options.contains('&') {
+        options = options.replace('&', "&'a ");
+        ts.extend(TokenStream::from_str("<'a>").unwrap());
+    }
+    ts.extend([Group(proc_macro::Group::new(
+        Delimiter::Brace,
+        TokenStream::from_str(&options).unwrap(),
+    ))]);
 }

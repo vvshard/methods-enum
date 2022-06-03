@@ -55,30 +55,29 @@ mod blog {
         content: String,
     }
 
-    #[rustfmt::skip]
-    #[methods_enum::gen(Meth: run_methods)]
+    #[methods_enum::gen(?Meth: run_methods = Out / Er(String))]
     impl Post {
         pub fn add_text(&mut self, text: &str) -> Result<&str, String>;
         pub fn request_review(&mut self) -> Result<&str, String>;
         pub fn reject(&mut self) -> Result<&str, String>;
         pub fn approve(&mut self) -> Result<&str, String>;
-        pub fn content(&mut self) -> &str { __.unwrap_or("") }
+        pub fn content(&mut self) -> &str;
     }
 
     impl Post {
         // #[rustfmt::skip]
-        fn run_methods(&mut self, method: Meth) -> Result<&str, String> {
+        fn run_methods(&mut self, method: Meth) -> Out {
             match self.state {
                 State::Draft => match method {
                     Meth::add_text(text) => {
                         self.content.push_str(text);
-                        Ok(&self.content)
+                        Out::add_text(Ok(&self.content)) 
                     }
                     Meth::request_review() => {
                         self.state = State::PendingReview {
                             number_approvals: 0,
                         };
-                        Ok("")
+                        Out::request_review(Ok(""))
                     }
                     m => self.method_not_possible(m),
                 },
@@ -87,30 +86,30 @@ mod blog {
                     Meth::approve() => {
                         if number_approvals == 1 {
                             self.state = State::Published;
-                            Ok("State::Published")
+                            Out::approve(Ok("State::Published"))
                         } else {
                             self.state = State::PendingReview {
                                 number_approvals: 1,
                             };
-                            Ok("State::PendingReview { number_approvals: 1 }")
+                            Out::approve(Ok("State::PendingReview { number_approvals: 1 }"))
                         }
                     }
                     Meth::reject() => {
                         self.state = State::Draft;
-                        Ok("")
+                        Out::reject(Ok(""))
                     }
                     m => self.method_not_possible(m),
                 },
 
                 State::Published => match method {
-                    Meth::content() => Ok(&self.content),
+                    Meth::content() => Out::content(&self.content),
                     m => self.method_not_possible(m),
                 },
             }
         }
 
-        fn method_not_possible(&self, act: Meth) -> Result<&str, String> {
-            Err(format!(
+        fn method_not_possible(&self, act: Meth) -> Out {
+            Out::Er(format!(
                 "For State::{:?} method '{act:?}' is not possible",
                 self.state
             ))
