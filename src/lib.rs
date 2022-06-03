@@ -3,7 +3,9 @@
 use core::str::FromStr;
 
 use proc_macro::TokenTree::{self, Group, Ident, Punct};
-use proc_macro::{Delimiter, Group as SctGroup, Punct as SctPunct, Spacing, TokenStream};
+use proc_macro::{
+    Delimiter, Group as SGroup, Ident as SIdent, Punct as SPunct, Spacing, Span, TokenStream,
+};
 
 #[derive(Debug)]
 enum Message {
@@ -26,8 +28,7 @@ struct Attr {
     /// "" - none; "?" - conclusion of messages; "!" - panic! and conclusion of messages
     dbg: &'static str,
     out_name: String,
-    def_name: String,
-    def_type: Option<String>,
+    strict_types: bool,
     diagnostics: Vec<Messg>,
 }
 impl Attr {
@@ -58,49 +59,18 @@ impl Attr {
         };
         match [attr_it.next(), attr_it.next()] {
             [None, None] => attr,
-            [Some(Punct(p)), Some(Ident(out_n))] if p.to_string() == "=" => {
-                let attr = Attr {
-                    out_name: out_n.to_string(),
-                    ..attr
-                };
-                match [attr_it.next(), attr_it.next()] {
-                    [None, None] => attr,
-                    [Some(Punct(p)), Some(Ident(def_n))] if p.to_string() == "/" => Attr {
-                        def_name: def_n.to_string(),
-                        def_type: attr_it.next().map(|tt| match tt {
-                            Group(type_gr) if type_gr.delimiter() == Delimiter::Parenthesis => {
-                                type_gr.stream().to_string()
-                            }
-                            _ => panic!("{} = {out_n} / {def_n}??.. ", attr.err_in()),
-                        }),
-                        ..attr
-                    },
-                    _ => panic!("{} = {out_n}??.. ", attr.err_in()),
-                }
-            }
+            [Some(Punct(p)), Some(Ident(out_n))] if p.to_string() == "=" => Attr {
+                out_name: out_n.to_string(),
+                strict_types: match attr_it.next() {
+                    Some(Punct(p)) if p.to_string() == "!" => true,
+                    _ => false,
+                },
+                ..attr
+            },
             _ => panic!("{}??.. ", attr.err_in()),
         }
     }
 
-    fn def_opt(&self) -> String {
-        match &self.def_type {
-            Some(typ) => format!("{}({})", self.def_name, typ),
-            None => self.def_name.clone(),
-        }
-    }
-    fn def_arm(&self, out: &str) -> String {
-        if out.starts_with("Result") {
-            match self.def_type {
-                Some(_) => format!("{}(x) => Err(x),", self.def_name),
-                None => format!("{} => Err(()),", self.def_name),
-            }
-        } else {
-            match self.def_type {
-                Some(_) => format!("{}(_) => <{out}>::default(),", self.def_name),
-                None => format!("{} => <{out}>::default(),", self.def_name),
-            }
-        }
-    }
     fn err_in(&self) -> String {
         format!(
             "syntax error in attribute #[methods_enum::gen({}:{}",
@@ -117,15 +87,15 @@ impl Attr {
 #[derive(Debug, Default)]
 struct Meth {
     name: String,
-    span: Option<proc_macro::Span>,
+    ident: Option<SIdent>,
     ts: TokenStream,
     out: TokenStream,
-    body: TokenStream,
+    default: TokenStream,
     params: String,
     typs: String,
 }
 impl Meth {
-    fn args(&mut self, gr: SctGroup) -> Result<(), String> {
+    fn args(&mut self, gr: SGroup) -> Result<(), String> {
         let mut args_it = gr.stream().into_iter();
         let mut lg = 0;
         let mut first = true;
@@ -193,24 +163,23 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     // print_ts(&attr_ts, &item_ts);
 
     let mut attr = Attr::new(attr_ts);
-    // dbg!(&attr);
 
     let mut item_it = item_ts.into_iter();
 
-    let mut result_ts = TokenStream::from_iter(item_it.by_ref().take_while(|tt| match tt {
+    let mut block_ts = TokenStream::from_iter(item_it.by_ref().take_while(|tt| match tt {
         Ident(id) if id.to_string() == "impl" => false,
         _ => true,
     }));
-    result_ts.extend([Ident(proc_macro::Ident::new(
+    block_ts.extend([Ident(proc_macro::Ident::new(
         "impl",
         proc_macro::Span::call_site(),
     ))]);
 
-    let (item_name, mut impl_it, impl_span) = match [item_it.next(), item_it.next(), item_it.next()]
+    let (item_name, mut item_it, impl_span) = match [item_it.next(), item_it.next(), item_it.next()]
     {
         [Some(Ident(item_n)), Some(Group(gr)), None] if gr.delimiter() == Delimiter::Brace => {
             let item_name = item_n.to_string();
-            result_ts.extend([Ident(item_n)]);
+            block_ts.extend([Ident(item_n)]);
             (item_name, gr.stream().into_iter(), gr.span())
         }
         m => panic!("SYNTAX ERROR: 'this attribute must be set on block impl without treyds and generics': {m:?}"),
@@ -231,7 +200,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     use ParseStates::*;
     // filling for methods
     let tail = loop {
-        match impl_it.try_fold((Start, Meth::default()), |(state, mut m), tt| {
+        match item_it.try_fold((Start, Meth::default()), |(state, mut m), tt| {
             match (state, tt) {
                 (Start, Ident(id)) if id.to_string() == "fn" => {
                     m.ts.extend([Ident(id)]);
@@ -239,7 +208,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                 }
                 (Name, Ident(id)) => {
                     m.name = id.to_string();
-                    m.span = Some(id.span());
+                    m.ident = Some(id.clone());
                     m.ts.extend([Ident(id)]);
                     if m.name == attr.run_method {
                         Err((Stop, m))
@@ -262,52 +231,44 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                     m.ts.extend([Punct(p)]);
                     Ok((Out, m))
                 }
-                (Out, Ident(id)) if id.to_string() == "where" => {
-                    // skip the generalized fn
-                    m.ts.extend([Ident(id)]);
-                    m.out = TokenStream::new();
+                (Minus, Group(gr)) if gr.delimiter() == Delimiter::Brace => {
+                    // skip fn with body
+                    m.ts.extend([Group(gr)]);
                     Ok((Start, m))
                 }
-                (Minus | Out, Punct(p)) if p.to_string() == ";" => Err((state, m)),
                 (Minus | Out, Group(gr))
-                    if gr.delimiter() == Delimiter::Brace && attr.def_name.is_empty() =>
+                    if gr.delimiter() == Delimiter::Brace && attr.out_name.is_empty() =>
                 {
                     // skip fn with body
                     m.ts.extend([Group(gr)]);
                     m.out = TokenStream::new();
                     Ok((Start, m))
                 }
-                (Minus | Out, Group(gr)) if gr.delimiter() == Delimiter::Brace => {
+                (Minus | Out, Punct(p)) if p.to_string() == ";" => Err((state, m)),
+                (Out, Group(gr)) if gr.delimiter() == Delimiter::Brace => {
                     let mut gr_it = gr.stream().into_iter();
-                    let a = [gr_it.next(), gr_it.next(), gr_it.next()];
-                    match a {
-                        [Some(Ident(ref def_n)), Some(Group(_)), Some(Punct(ref p))]
-                        | [Some(Ident(ref def_n)), Some(Punct(ref p)), Some(_)]
-                            if def_n.to_string() == attr.def_name
-                                && p.to_string() == "="
-                                && p.spacing() == Spacing::Alone =>
+                    let _id = match [gr_it.next(), gr_it.next()] {
+                        [Some(Ident(id)), _] if id.to_string().starts_with('_') => id,
+                        [Some(Ident(id0)), Some(Ident(id))]
+                            if id0.to_string() == "match" && id.to_string().starts_with('_') =>
                         {
-                            // replacing '=' with '=>' in the body
-                            let mut body =
-                                TokenStream::from_iter(a.into_iter().flat_map(|optt| match optt {
-                                    Some(Punct(p)) if p.to_string() == "=" => vec![
-                                        Punct(SctPunct::new('=', Spacing::Joint)),
-                                        Punct(SctPunct::new('>', Spacing::Alone)),
-                                    ],
-                                    _ => vec![optt.unwrap()],
-                                }));
-                            body.extend(gr_it);
-                            m.body = body;
-                            Err((state, m))
+                            id
                         }
-
-                        _ => {
-                            // skips fn with a body starting not with the default option
-                            m.ts.extend([Group(gr)]);
-                            m.out = TokenStream::new();
-                            Ok((Start, m))
-                        }
-                    }
+                        _ => SIdent::new("_", m.ident.as_ref().unwrap().span()),
+                    };
+                    m.default.extend([
+                        Ident(_id),
+                        Punct(SPunct::new('=', Spacing::Joint)),
+                        Punct(SPunct::new('>', Spacing::Alone)),
+                    ]);
+                    m.default.extend(gr.stream());
+                    Err((state, m))
+                }
+                (Out, Ident(id)) if id.to_string() == "where" => {
+                    // skip the generalized fn
+                    m.ts.extend([Ident(id)]);
+                    m.out = TokenStream::new();
+                    Ok((Start, m))
                 }
                 (Out, tt) => {
                     m.out.extend((TokenStream::from(tt.clone())));
@@ -329,26 +290,63 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         };
     }; // filling for methods
 
-    // println!("methods: {:#?}", methods);
-
-
-    let mut options = String::new();
-    //                  (name, out)
-    let mut outs: Vec<(String, String)> = Vec::new();
-    let mut no_out = "";
+    let mut out_ts =
+        TokenStream::from_str("#[derive(Debug)] #[allow(non_camel_case_types)] enum ").unwrap();
+    let mut result_ts: TokenStream = out_ts.clone();
+    result_ts.extend([Ident((SIdent::new(&attr.enum_name, Span::call_site())))]);
+    let live_ts = TokenStream::from_str("<'a>").unwrap();
+    //                  (name.0, out.1, span.2)
+    let mut outs: Vec<(String, String, Span)> = Vec::new();
+    let mut enum_ts = TokenStream::new();
+    let mut refs = false;
     for m in methods.iter() {
-        options = options + &m.name + "(" + &m.typs + "), ";
-        if !attr.out_name.is_empty() {
-            if m.out.is_empty() {
-                no_out = "__(()), ";
+        enum_ts.extend([Ident(m.ident.as_ref().unwrap().clone())]);
+        enum_ts.extend(TokenStream::from_str(&format!(
+            "({}), ",
+            if m.typs.contains('&') {
+                refs = true;
+                m.typs.replace('&', "&'a ")
             } else {
-                outs.push((m.name.clone(), m.out.to_string()));
+                m.typs.clone()
             }
+        )));
+        if !m.out.is_empty() {
+            outs.push((
+                m.name.clone(),
+                m.out.to_string(),
+                m.out.clone().into_iter().next().unwrap().span(),
+            ));
         }
+    }
+    if refs {
+        result_ts.extend(live_ts.clone());
+    }
+    result_ts.extend([Group(proc_macro::Group::new(Delimiter::Brace, enum_ts))]);
+
+    if !attr.out_name.is_empty() {
+        result_ts.extend(out_ts);
+        result_ts.extend([Ident((SIdent::new(&attr.out_name, Span::call_site())))]);
+        enum_ts = TokenStream::from_str("Unit, ").unwrap();
+        refs = false;
+        for (name, out, span) in outs.iter() {
+            enum_ts.extend([Ident(SIdent::new(name, *span))]);
+            enum_ts.extend(TokenStream::from_str(&format!(
+                "({}), ",
+                if out.contains('&') {
+                    refs = true;
+                    out.replace('&', "&'a ")
+                } else {
+                    out.clone()
+                }
+            )));
+        }
+        if refs {
+            result_ts.extend(live_ts.clone());
+        }
+        result_ts.extend([Group(proc_macro::Group::new(Delimiter::Brace, enum_ts))]);
     }
 
     let self_run_enum = format!("self.{}({}::", attr.run_method, attr.enum_name);
-
     let mut metods_ts = TokenStream::new();
     for m in methods {
         metods_ts.extend(m.ts);
@@ -360,63 +358,42 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         if attr.out_name.is_empty() || m.out.is_empty() {
             body_ts.extend(TokenStream::from_str(&call_run).unwrap());
             if m.out.is_empty() {
-                body_ts.extend([Punct(SctPunct::new(';', Spacing::Alone))]);
+                body_ts.extend([Punct(SPunct::new(';', Spacing::Alone))]);
             }
         } else {
+            let out_enum = attr.out_name.clone() + "::";
             let out = m.out.to_string();
-            let lside = (outs.iter())
-                .filter_map(|(n, o)| (o == &out).then(|| n.clone() + "(x)"))
-                .reduce(|s, n| s + " | " + &n)
-                .unwrap();
-            let mut match_ts = TokenStream::from_str(&format!("{lside} => x,")).unwrap();
-            if m.body.is_empty() {
-                match_ts.extend(TokenStream::from_str(&attr.def_arm(&out)).unwrap());
+            let lside = if attr.strict_types {
+                out_enum + &out + "(x)"
             } else {
-                match_ts.extend(m.body);
+                (outs.iter())
+                    .filter_map(|(n, o, _)| (o == &out).then(|| out_enum.clone() + n + "(x)"))
+                    .reduce(|s, n| s + " | " + &n)
+                    .unwrap()
+            };
+            let mut match_ts = TokenStream::from_str(&format!("{lside} => x,")).unwrap();
+            if m.default.is_empty() {
+                match_ts.extend(TokenStream::from_str("_ => panic!(\"type mismatch\")").unwrap());
+            } else {
+                match_ts.extend(m.default);
             }
-            match_ts.extend(TokenStream::from_str("_ => panic!(\"type mismatch\")").unwrap());
-
             body_ts.extend(TokenStream::from_str(&format!("match {call_run}")).unwrap());
-            body_ts.extend([Group(SctGroup::new(Delimiter::Brace, match_ts))]);
+            body_ts.extend([Group(SGroup::new(Delimiter::Brace, match_ts))]);
         }
-        metods_ts.extend([Group(SctGroup::new(Delimiter::Brace, body_ts))]);
+        metods_ts.extend([Group(SGroup::new(Delimiter::Brace, body_ts))]);
     }
 
     metods_ts.extend(tail);
-    metods_ts.extend(impl_it);
+    metods_ts.extend(item_it);
 
-    result_ts.extend([Group(SctGroup::new(Delimiter::Brace, metods_ts))]);
+    block_ts.extend([Group(SGroup::new(Delimiter::Brace, metods_ts))]);
 
-    // enum / enums
-    result_ts.extend(TokenStream::from_str("#[derive(Debug)]").unwrap());
-    add_enum(&mut result_ts, &attr.enum_name, options);
-
-    if !attr.out_name.is_empty() {
-        options = (outs.iter()).fold(String::new(), |s, (name, out)| s + name + "(" + out + "), ")
-            + no_out
-            + &attr.def_opt();
-        add_enum(&mut result_ts, &attr.out_name, options);
-    }
+    result_ts.extend(block_ts);
 
     if attr.dbg > "" {
-        println!("diagnostics: \"{:?}\"", attr.diagnostics);
-        println!("result_ts: \"{}\"", result_ts);
+        println!("diagnostics: \n{:#?}", attr.diagnostics);
+        println!("result_ts: \n{}", result_ts);
     }
 
     result_ts
-}
-
-fn add_enum(ts: &mut TokenStream, name: &str, mut options: String) {
-    ts.extend(
-        TokenStream::from_str(&("#[allow(non_camel_case_types)] enum ".to_string() + name))
-            .unwrap(),
-    );
-    if options.contains('&') {
-        options = options.replace('&', "&'a ");
-        ts.extend(TokenStream::from_str("<'a>").unwrap());
-    }
-    ts.extend([Group(proc_macro::Group::new(
-        Delimiter::Brace,
-        TokenStream::from_str(&options).unwrap(),
-    ))]);
 }

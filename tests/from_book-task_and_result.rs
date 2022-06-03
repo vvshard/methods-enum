@@ -55,13 +55,15 @@ mod blog {
         content: String,
     }
 
-    #[methods_enum::gen(?Meth: run_methods = Out / Er(String))]
+    #[methods_enum::gen(Meth: run_methods = Out)]
     impl Post {
         pub fn add_text(&mut self, text: &str) -> Result<&str, String>;
         pub fn request_review(&mut self) -> Result<&str, String>;
         pub fn reject(&mut self) -> Result<&str, String>;
         pub fn approve(&mut self) -> Result<&str, String>;
-        pub fn content(&mut self) -> &str;
+        pub fn content(&mut self) -> &str {
+            ""
+        }
     }
 
     impl Post {
@@ -71,7 +73,7 @@ mod blog {
                 State::Draft => match method {
                     Meth::add_text(text) => {
                         self.content.push_str(text);
-                        Out::add_text(Ok(&self.content)) 
+                        Out::add_text(Ok(&self.content))
                     }
                     Meth::request_review() => {
                         self.state = State::PendingReview {
@@ -109,10 +111,10 @@ mod blog {
         }
 
         fn method_not_possible(&self, act: Meth) -> Out {
-            Out::Er(format!(
+            Out::add_text(Err(format!(
                 "For State::{:?} method '{act:?}' is not possible",
                 self.state
-            ))
+            )))
         }
 
         pub fn new() -> Post {
