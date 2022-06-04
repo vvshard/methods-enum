@@ -323,8 +323,13 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         m => panic!("SYNTAX ERROR: 'this attribute must be set on block impl without treyds and generics': {m:?}"),
     };
 
-    let out_ts =
-        TokenStream::from_str("#[derive(Debug)] #[allow(non_camel_case_types)] enum ").unwrap();
+    let out_ts = TokenStream::from_str(
+        "/// formed by macro #[[methods_enum::gen()]]
+        #[derive(Debug)] 
+        #[allow(non_camel_case_types)]
+        enum ",
+    )
+    .unwrap();
 
     let methods = Meth::filling_vec(&mut block_it, &mut attr);
 

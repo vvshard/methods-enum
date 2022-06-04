@@ -71,7 +71,7 @@ mod blog {
         content: String,
     }
 
-    #[methods_enum::gen(Meth: run_methods = Out)]
+    #[methods_enum::gen(?Meth: run_methods = Out)]
     impl Post {
         pub fn add_text(&mut self, text: &str) -> Result<&str, String>;
         pub fn request_review(&mut self) -> Result<&State, String>;
