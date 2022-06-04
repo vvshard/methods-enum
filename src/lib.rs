@@ -189,10 +189,10 @@ impl Meth {
         Ok(())
     }
 
-    fn filling_vec(it: &mut IntoIter, attr: &mut Attr) -> (Vec<Meth>, TokenStream) {
+    fn filling_vec(iit: &mut IntoIter, attr: &mut Attr) -> Vec<Meth> {
         let mut methods: Vec<Meth> = Vec::new();
-        let tail: TokenStream = loop {
-            match it.try_fold((Start, Meth::default()), |(state, mut m), tt| {
+        loop {
+            match iit.try_fold((Start, Meth::default()), |(state, mut m), tt| {
                 match (state, tt) {
                     (Start, Ident(id)) if id.to_string() == "fn" => {
                         m.ts.extend([Ident(id)]);
@@ -271,11 +271,14 @@ impl Meth {
                     }
                 }
             }) {
-                Ok((_, m)) | Err((Stop, m)) => break m.ts,
+                Ok((_, mut m)) | Err((Stop, mut m)) => {
+                    m.name = String::new();
+                    methods.push(m);
+                    break methods;
+                }
                 Err((_, m)) => methods.push(m),
             };
-        };
-        (methods, tail)
+        }
     }
 }
 
@@ -294,11 +297,11 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
     let mut item_it = item_ts.into_iter();
 
-    let mut block_ts = TokenStream::from_iter(item_it.by_ref().take_while(|tt| match tt {
+    let mut item_ts = TokenStream::from_iter(item_it.by_ref().take_while(|tt| match tt {
         Ident(id) if id.to_string() == "impl" => false,
         _ => true,
     }));
-    block_ts.extend([Ident(proc_macro::Ident::new(
+    item_ts.extend([Ident(proc_macro::Ident::new(
         "impl",
         proc_macro::Span::call_site(),
     ))]);
@@ -306,7 +309,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     let mut block_it = match [item_it.next(), item_it.next(), item_it.next()]
     {
         [Some(Ident(item_n)), Some(Group(gr)), None] if gr.delimiter() == Delimiter::Brace => {
-            block_ts.extend([Ident(item_n)]);
+            item_ts.extend([Ident(item_n)]);
             gr.stream().into_iter()
         }
         m => panic!("SYNTAX ERROR: 'this attribute must be set on block impl without treyds and generics': {m:?}"),
@@ -317,7 +320,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     let mut result_ts: TokenStream = out_ts.clone();
     result_ts.extend([Ident(SIdent::new(&attr.enum_name, Span::call_site()))]);
 
-    let (mut methods, tail) = Meth::filling_vec(&mut block_it, &mut attr);
+    let methods = Meth::filling_vec(&mut block_it, &mut attr);
 
     let live_ts = TokenStream::from_str("<'a>").unwrap();
     //                  (name.0, out.1, span.2)
@@ -325,22 +328,24 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     let mut enum_ts = TokenStream::new();
     let mut refs = false;
     for m in methods.iter() {
-        enum_ts.extend([Ident(m.ident.as_ref().unwrap().clone())]);
-        enum_ts.extend(TokenStream::from_str(&format!(
-            "({}), ",
-            if m.typs.contains('&') {
-                refs = true;
-                m.typs.replace('&', "&'a ")
-            } else {
-                m.typs.clone()
+        if !m.name.is_empty() {
+            enum_ts.extend([Ident(m.ident.as_ref().unwrap().clone())]);
+            enum_ts.extend(TokenStream::from_str(&format!(
+                "({}), ",
+                if m.typs.contains('&') {
+                    refs = true;
+                    m.typs.replace('&', "&'a ")
+                } else {
+                    m.typs.clone()
+                }
+            )));
+            if !m.out.is_empty() {
+                outs.push((
+                    m.name.clone(),
+                    m.out.to_string(),
+                    m.out.clone().into_iter().next().unwrap().span(),
+                ));
             }
-        )));
-        if !m.out.is_empty() {
-            outs.push((
-                m.name.clone(),
-                m.out.to_string(),
-                m.out.clone().into_iter().next().unwrap().span(),
-            ));
         }
     }
     if refs {
@@ -376,52 +381,53 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     let mut metods_ts = TokenStream::new();
     for m in methods {
         metods_ts.extend(m.ts);
-        let call_run = format!("{self_run_enum}{}({}))", m.name, m.params);
-        let mut body_ts = match m.out.is_empty() {
-            true => TokenStream::from_str("#![allow(unused_must_use)]").unwrap(),
-            false => TokenStream::new(),
-        };
-        if attr.out_name.is_empty() || m.out.is_empty() {
-            body_ts.extend(TokenStream::from_str(&call_run).unwrap());
-            if m.out.is_empty() {
-                body_ts.extend([Punct(SPunct::new(';', Spacing::Alone))]);
-            }
-        } else {
-            body_ts.extend(TokenStream::from_str(&format!("match {call_run}")).unwrap());
-            let out_enum = attr.out_name.clone() + "::";
-            let out = m.out.to_string();
-            let lside = if attr.strict_types {
-                out_enum + &m.name + "(x)"
-            } else {
-                (outs.iter())
-                    .filter_map(|(n, o, _)| (o == &out).then(|| out_enum.clone() + n + "(x)"))
-                    .reduce(|s, n| s + " | " + &n)
-                    .unwrap()
+        if !m.name.is_empty() {
+            let call_run = format!("{self_run_enum}{}({}))", m.name, m.params);
+            let mut body_ts = match m.out.is_empty() {
+                true => TokenStream::from_str("#![allow(unused_must_use)]").unwrap(),
+                false => TokenStream::new(),
             };
-            let mut match_ts =
-                TokenStream::from_str(&format!("{lside} => x, {varname} => ")).unwrap();
-            if m.default.is_empty() {
-                match_ts.extend(
-                    TokenStream::from_str(&format!(
-                        "panic!(\"type mismatch: expected- {}, found- {{:?}}\", {varname})",
-                        lside.replace("(x)", &format!("({out})"))
-                    ))
-                    .unwrap(),
-                );
+            if attr.out_name.is_empty() || m.out.is_empty() {
+                body_ts.extend(TokenStream::from_str(&call_run).unwrap());
+                if m.out.is_empty() {
+                    body_ts.extend([Punct(SPunct::new(';', Spacing::Alone))]);
+                }
             } else {
-                match_ts.extend(m.default);
+                body_ts.extend(TokenStream::from_str(&format!("match {call_run}")).unwrap());
+                let out_enum = attr.out_name.clone() + "::";
+                let out = m.out.to_string();
+                let lside = if attr.strict_types {
+                    out_enum + &m.name + "(x)"
+                } else {
+                    (outs.iter())
+                        .filter_map(|(n, o, _)| (o == &out).then(|| out_enum.clone() + n + "(x)"))
+                        .reduce(|s, n| s + " | " + &n)
+                        .unwrap()
+                };
+                let mut match_ts =
+                    TokenStream::from_str(&format!("{lside} => x, {varname} => ")).unwrap();
+                if m.default.is_empty() {
+                    match_ts.extend(
+                        TokenStream::from_str(&format!(
+                            "panic!(\"type mismatch: expected- {}, found- {{:?}}\", {varname})",
+                            lside.replace("(x)", &format!("({out})"))
+                        ))
+                        .unwrap(),
+                    );
+                } else {
+                    match_ts.extend(m.default);
+                }
+                body_ts.extend([Group(SGroup::new(Delimiter::Brace, match_ts))]);
             }
-            body_ts.extend([Group(SGroup::new(Delimiter::Brace, match_ts))]);
+            metods_ts.extend([Group(SGroup::new(Delimiter::Brace, body_ts))]);
         }
-        metods_ts.extend([Group(SGroup::new(Delimiter::Brace, body_ts))]);
     }
 
-    metods_ts.extend(tail);
     metods_ts.extend(block_it);
 
-    block_ts.extend([Group(SGroup::new(Delimiter::Brace, metods_ts))]);
+    item_ts.extend([Group(SGroup::new(Delimiter::Brace, metods_ts))]);
 
-    result_ts.extend(block_ts);
+    result_ts.extend(item_ts);
 
     if attr.dbg > "" {
         println!("diagnostics: \n{:#?}", attr.diagnostics);
