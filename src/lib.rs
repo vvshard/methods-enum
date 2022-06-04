@@ -2,6 +2,7 @@
 
 // region: debug
 #[allow(unused)]
+// output is shorter than dbg!()
 fn print_incoming_ts(attr_ts: &TokenStream, item_ts: &TokenStream) {
     println!("attr_ts: \"{}\"", attr_ts.to_string());
     unvrap_ts(attr_ts.clone(), 0);
@@ -134,9 +135,9 @@ impl ParseStates {
     fn expect(&self) -> &'static str {
         match self {
             Name => "function name",
-            Args => "'('",
-            Minus => "'-' or '{' or ';'",
-            Lg => "'>'",
+            Args => "`(`",
+            Minus => "one of: `-`, `{`, `;`",
+            Lg => "`>`",
             _ => "",
         }
     }
@@ -181,6 +182,9 @@ impl Meth {
                 }
                 Some(Ident(id)) if id.to_string() == "impl" => {
                     return Err("generalized arg: 'impl'".to_string())
+                }
+                Some(Ident(id)) if !first && id.to_string() == "mut" => {
+                    self.typs += "mut ";
                 }
                 Some(tt) if !first => self.typs += &tt.to_string(),
                 None => break,
@@ -299,7 +303,7 @@ impl Meth {
 
 #[proc_macro_attribute]
 pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
-    // print_ts(&attr_ts, &item_ts);
+    // print_incoming_ts(&attr_ts, &item_ts);
 
     let mut attr = Attr::new(attr_ts);
 
@@ -332,6 +336,8 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     .unwrap();
 
     let methods = Meth::filling_vec(&mut block_it, &mut attr);
+
+    // dbg!(&methods);
 
     let mut result_ts: TokenStream = out_ts.clone();
     result_ts.extend([Ident(attr.enum_ident.unwrap())]);
