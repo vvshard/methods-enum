@@ -1,5 +1,7 @@
 use blog::Post;
 
+use crate::blog::State;
+
 #[test]
 fn main() {
     let mut post = Post::new();
@@ -10,32 +12,46 @@ fn main() {
     );
     assert_eq!(post.content(), "");
 
-    assert!(post.request_review().is_ok());
+    assert_eq!(
+        post.request_review(),
+        Ok(&State::PendingReview {
+            number_approvals: 0
+        })
+    );
     assert_eq!(post.content(), "");
 
     assert_eq!(
         post.add_text("\nI'm hungry"),
-        Err("For State::PendingReview { number_approvals: 0 } method 'add_text(\"\\nI'm hungry\")' is not possible".to_string())
+        Err("For State::PendingReview { number_approvals: 0 } \
+        method 'add_text(\"\\nI'm hungry\")' is not possible"
+            .to_string())
     );
-    assert!(post.reject().is_ok());
+    post.reject();
     assert_eq!(
-        post.add_text("\nI'm hungry - 2!!"),
-        Ok("I ate a salad for lunch today\nI'm hungry - 2!!")
+        post.add_text("\nSecond time: I'm hungry!!"),
+        Ok("I ate a salad for lunch today\nSecond time: I'm hungry!!")
     );
     assert_eq!(
         post.approve(),
         Err("For State::Draft method 'approve' is not possible".to_string())
     );
-    assert!(post.request_review().is_ok());
+    assert_eq!(
+        post.request_review(),
+        Ok(&State::PendingReview {
+            number_approvals: 0
+        })
+    );
     assert_eq!(
         post.approve(),
-        Ok("State::PendingReview { number_approvals: 1 }")
+        Ok(&State::PendingReview {
+            number_approvals: 1
+        })
     );
     assert_eq!(post.content(), "");
-    assert_eq!(post.approve(), Ok("State::Published"));
+    assert_eq!(post.approve(), Ok(&State::Published));
     assert_eq!(
         post.content(),
-        "I ate a salad for lunch today\nI'm hungry - 2!!"
+        "I ate a salad for lunch today\nSecond time: I'm hungry!!"
     );
 
     // assert_eq!(Ok("I ate a salad for lunch today"), post.content()");
@@ -58,16 +74,14 @@ mod blog {
     #[methods_enum::gen(Meth: run_methods = Out)]
     impl Post {
         pub fn add_text(&mut self, text: &str) -> Result<&str, String>;
-        pub fn request_review(&mut self) -> Result<&str, String>;
-        pub fn reject(&mut self) -> Result<&str, String>;
-        pub fn approve(&mut self) -> Result<&str, String>;
+        pub fn request_review(&mut self) -> Result<&State, String>;
+        pub fn reject(&mut self);
+        pub fn approve(&mut self) -> Result<&State, String>;
+        // #[rustfmt::skip]
         pub fn content(&mut self) -> &str {
             ""
         }
-    }
 
-    impl Post {
-        // #[rustfmt::skip]
         fn run_methods(&mut self, method: Meth) -> Out {
             match self.state {
                 State::Draft => match method {
@@ -79,7 +93,7 @@ mod blog {
                         self.state = State::PendingReview {
                             number_approvals: 0,
                         };
-                        Out::request_review(Ok(""))
+                        Out::request_review(Ok(&self.state))
                     }
                     m => self.method_not_possible(m),
                 },
@@ -88,17 +102,17 @@ mod blog {
                     Meth::approve() => {
                         if number_approvals == 1 {
                             self.state = State::Published;
-                            Out::approve(Ok("State::Published"))
+                            Out::approve(Ok(&self.state))
                         } else {
                             self.state = State::PendingReview {
                                 number_approvals: 1,
                             };
-                            Out::approve(Ok("State::PendingReview { number_approvals: 1 }"))
+                            Out::approve(Ok(&self.state))
                         }
                     }
                     Meth::reject() => {
                         self.state = State::Draft;
-                        Out::reject(Ok(""))
+                        Out::Unit
                     }
                     m => self.method_not_possible(m),
                 },
@@ -111,10 +125,14 @@ mod blog {
         }
 
         fn method_not_possible(&self, act: Meth) -> Out {
-            Out::add_text(Err(format!(
+            let err_s = format!(
                 "For State::{:?} method '{act:?}' is not possible",
                 self.state
-            )))
+            );
+            match act {
+                Meth::add_text(_) => Out::add_text(Err(err_s)),
+                _ => Out::request_review(Err(err_s)),
+            }
         }
 
         pub fn new() -> Post {
