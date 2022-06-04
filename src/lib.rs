@@ -56,21 +56,23 @@ struct Messg {
 #[derive(Debug, Default)]
 struct Attr {
     enum_name: String,
+    enum_ident: Option<SIdent>,
     run_method: String,
     /// "" - none; "?" - conclusion of messages; "!" - panic! and conclusion of messages
     dbg: &'static str,
-    out_name: String,
+    out_ident: Option<SIdent>,
     strict_types: bool,
     diagnostics: Vec<Messg>,
 }
 impl Attr {
     fn new(attr_ts: TokenStream) -> Attr {
         let mut attr_it = attr_ts.into_iter();
-        let (enum_name, dbg) = match attr_it.next() {
-            Some(Ident(enum_n)) => (enum_n.to_string(), ""),
+        let (enum_name, enum_id, dbg) = match attr_it.next() {
+            Some(Ident(enum_i)) => (enum_i.to_string(), enum_i.clone(), ""),
             Some(Punct(p)) if "?!".contains(&p.to_string()) => match attr_it.next() {
-                Some(Ident(enum_n)) => (
-                    enum_n.to_string(),
+                Some(Ident(enum_i)) => (
+                    enum_i.to_string(),
+                    enum_i.clone(),
                     if p.to_string() == "?" { "?" } else { "!" },
                 ),
                 _ => panic!("syntax error in attribute #[methods_enum::gen(?? "),
@@ -85,14 +87,15 @@ impl Attr {
         };
         let attr = Attr {
             enum_name,
+            enum_ident: Some(enum_id),
             run_method,
             dbg,
             ..Default::default()
         };
         match [attr_it.next(), attr_it.next()] {
             [None, None] => attr,
-            [Some(Punct(p)), Some(Ident(out_n))] if p.to_string() == "=" => Attr {
-                out_name: out_n.to_string(),
+            [Some(Punct(p)), Some(Ident(out_id))] if p.to_string() == "=" => Attr {
+                out_ident: Some(out_id.clone()),
                 strict_types: match attr_it.next() {
                     Some(Punct(p)) if p.to_string() == "!" => true,
                     _ => false,
@@ -210,7 +213,14 @@ impl Meth {
                         match m.args(gr) {
                             Ok(_) => Ok((Minus, m)),
                             Err(mess) => {
-                                attr.diagn(Report, format!("skip fn {}: args: {}", m.ident.as_ref().unwrap(), mess));
+                                attr.diagn(
+                                    Report,
+                                    format!(
+                                        "skip fn {}: args: {}",
+                                        m.ident.as_ref().unwrap(),
+                                        mess
+                                    ),
+                                );
                                 Ok((Start, m))
                             }
                         }
@@ -229,7 +239,7 @@ impl Meth {
                         Ok((Start, m))
                     }
                     (Out, Group(gr))
-                        if gr.delimiter() == Delimiter::Brace && attr.out_name.is_empty() =>
+                        if gr.delimiter() == Delimiter::Brace && attr.out_ident.is_none() =>
                     {
                         // skip fn with body
                         m.ts.extend([Group(gr)]);
@@ -315,10 +325,11 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
     let out_ts =
         TokenStream::from_str("#[derive(Debug)] #[allow(non_camel_case_types)] enum ").unwrap();
-    let mut result_ts: TokenStream = out_ts.clone();
-    result_ts.extend([Ident(SIdent::new(&attr.enum_name, Span::call_site()))]);
 
     let methods = Meth::filling_vec(&mut block_it, &mut attr);
+
+    let mut result_ts: TokenStream = out_ts.clone();
+    result_ts.extend([Ident(attr.enum_ident.unwrap())]);
 
     let live_ts = TokenStream::from_str("<'a>").unwrap();
     //                  (name.0, out.1, span.2)
@@ -351,9 +362,9 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     }
     result_ts.extend([Group(proc_macro::Group::new(Delimiter::Brace, enum_ts))]);
 
-    if !attr.out_name.is_empty() {
+    if let Some(out_ident) = &attr.out_ident {
         result_ts.extend(out_ts);
-        result_ts.extend([Ident(SIdent::new(&attr.out_name, Span::call_site()))]);
+        result_ts.extend([Ident(out_ident.clone())]);
         enum_ts = TokenStream::from_str("Unit, ").unwrap();
         refs = false;
         for (name, out, span) in outs.iter() {
@@ -375,7 +386,10 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     }
 
     let self_run_enum = format!("self.{}({}::", attr.run_method, attr.enum_name);
-    let varname = format!("_{}", attr.out_name.to_lowercase());
+    let varname = match &attr.out_ident {
+        Some(out_ident) => format!("_{}", out_ident),
+        None => String::new(),
+    };
     let mut metods_ts = TokenStream::new();
     for m in methods {
         metods_ts.extend(m.ts);
@@ -385,14 +399,14 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                 true => TokenStream::from_str("#![allow(unused_must_use)]").unwrap(),
                 false => TokenStream::new(),
             };
-            if attr.out_name.is_empty() || m.out.is_empty() {
+            if attr.out_ident.is_none() || m.out.is_empty() {
                 body_ts.extend(TokenStream::from_str(&call_run).unwrap());
                 if m.out.is_empty() {
                     body_ts.extend([Punct(SPunct::new(';', Spacing::Alone))]);
                 }
-            } else {
+            } else if let Some(out_ident) = &attr.out_ident {
                 body_ts.extend(TokenStream::from_str(&format!("match {call_run}")).unwrap());
-                let out_enum = attr.out_name.clone() + "::";
+                let out_enum = out_ident.to_string() + "::";
                 let out = m.out.to_string();
                 let lside = if attr.strict_types {
                     format!("{out_enum}{ident}(x)")
