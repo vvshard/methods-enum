@@ -141,7 +141,6 @@ impl ParseStates {
 
 #[derive(Debug, Default)]
 struct Meth {
-    name: String,
     ident: Option<SIdent>,
     ts: TokenStream,
     out: TokenStream,
@@ -199,12 +198,11 @@ impl Meth {
                         Ok((Name, m))
                     }
                     (Name, Ident(id)) => {
-                        m.name = id.to_string();
-                        m.ident = Some(id.clone());
-                        m.ts.extend([Ident(id)]);
-                        if m.name == attr.run_method {
+                        m.ts.extend([Ident(id.clone())]);
+                        if id.to_string() == attr.run_method {
                             Err((Stop, m))
                         } else {
+                            m.ident = Some(id.clone());
                             Ok((Args, m))
                         }
                     }
@@ -212,7 +210,7 @@ impl Meth {
                         match m.args(gr) {
                             Ok(_) => Ok((Minus, m)),
                             Err(mess) => {
-                                attr.diagn(Report, format!("skip fn {}: args: {}", m.name, mess));
+                                attr.diagn(Report, format!("skip fn {}: args: {}", m.ident.as_ref().unwrap(), mess));
                                 Ok((Start, m))
                             }
                         }
@@ -261,7 +259,7 @@ impl Meth {
                                 Report,
                                 format!(
                                     "skip fn {}: expected- {}, found- '{tt}'",
-                                    m.name,
+                                    m.ident.as_ref().unwrap(),
                                     st.expect()
                                 ),
                             );
@@ -272,7 +270,7 @@ impl Meth {
                 }
             }) {
                 Ok((_, mut m)) | Err((Stop, mut m)) => {
-                    m.name = String::new();
+                    m.ident = None;
                     methods.push(m);
                     break methods;
                 }
@@ -328,8 +326,8 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     let mut enum_ts = TokenStream::new();
     let mut refs = false;
     for m in methods.iter() {
-        if !m.name.is_empty() {
-            enum_ts.extend([Ident(m.ident.as_ref().unwrap().clone())]);
+        if let Some(ident) = &m.ident {
+            enum_ts.extend([Ident(ident.clone())]);
             enum_ts.extend(TokenStream::from_str(&format!(
                 "({}), ",
                 if m.typs.contains('&') {
@@ -341,7 +339,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             )));
             if !m.out.is_empty() {
                 outs.push((
-                    m.name.clone(),
+                    ident.to_string(),
                     m.out.to_string(),
                     m.out.clone().into_iter().next().unwrap().span(),
                 ));
@@ -371,7 +369,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             )));
         }
         if refs {
-            result_ts.extend(live_ts.clone());
+            result_ts.extend(live_ts);
         }
         result_ts.extend([Group(proc_macro::Group::new(Delimiter::Brace, enum_ts))]);
     }
@@ -381,8 +379,8 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     let mut metods_ts = TokenStream::new();
     for m in methods {
         metods_ts.extend(m.ts);
-        if !m.name.is_empty() {
-            let call_run = format!("{self_run_enum}{}({}))", m.name, m.params);
+        if let Some(ident) = m.ident {
+            let call_run = format!("{self_run_enum}{ident}({}))", m.params);
             let mut body_ts = match m.out.is_empty() {
                 true => TokenStream::from_str("#![allow(unused_must_use)]").unwrap(),
                 false => TokenStream::new(),
@@ -397,7 +395,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                 let out_enum = attr.out_name.clone() + "::";
                 let out = m.out.to_string();
                 let lside = if attr.strict_types {
-                    out_enum + &m.name + "(x)"
+                    format!("{out_enum}{ident}(x)")
                 } else {
                     (outs.iter())
                         .filter_map(|(n, o, _)| (o == &out).then(|| out_enum.clone() + n + "(x)"))
