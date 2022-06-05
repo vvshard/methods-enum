@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 // region: debug
 #[allow(unused)]
 // output is shorter than dbg!()
@@ -78,15 +76,11 @@ impl Attr {
                 },
                 ..attr
             },
-            _ => panic!("{}??.. ", attr.err_in()),
+            _ => panic!(
+                "syntax error in attribute #[methods_enum::gen({}:{}??..",
+                attr.enum_name, attr.run_method
+            ),
         }
-    }
-
-    fn err_in(&self) -> String {
-        format!(
-            "syntax error in attribute #[methods_enum::gen({}:{}",
-            self.enum_name, self.run_method
-        )
     }
     fn diagn(&mut self, info: &str) {
         if self.dbg {
