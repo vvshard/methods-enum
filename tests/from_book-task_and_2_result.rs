@@ -54,7 +54,6 @@ fn main() {
         "I ate a salad for lunch today\nSecond time: I'm hungry!!"
     );
 
-    // assert_eq!(Ok("I ate a salad for lunch today"), post.content()");
 }
 
 mod blog {
@@ -77,7 +76,6 @@ mod blog {
         pub fn request_review(&mut self) -> Result<&State, String>;
         pub fn reject(&mut self);
         pub fn approve(&mut self) -> Result<&State, String>;
-        // #[rustfmt::skip]
         pub fn content(&mut self) -> &str {
             ""
         }
@@ -105,7 +103,7 @@ mod blog {
                             Out::approve(Ok(&self.state))
                         } else {
                             self.state = State::PendingReview {
-                                number_approvals: 1,
+                                number_approvals: number_approvals + 1,
                             };
                             Out::approve(Ok(&self.state))
                         }

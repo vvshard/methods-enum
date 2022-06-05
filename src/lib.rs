@@ -53,9 +53,9 @@ impl Attr {
         let mut attr_it = attr_ts.into_iter();
         let (enum_id, dbg, run_method) = match [attr_it.next(), attr_it.next(), attr_it.next()] {
             [Some(Ident(enum_id)), Some(Punct(p)), Some(Ident(run_method_id))]
-                if ":;".contains(&p.to_string()) =>
+                if ":?".contains(&p.to_string()) =>
             {
-                (enum_id, p.to_string() == ";", run_method_id.to_string())
+                (enum_id, p.to_string() == "?", run_method_id.to_string())
             }
             _ => panic!("syntax error in attribute #[methods_enum::gen(?? "),
         };
@@ -288,17 +288,18 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         m => panic!("SYNTAX ERROR: 'this attribute must be set on block impl without treyds and generics': {m:?}"),
     };
 
-    let out_ts = TokenStream::from_str(
-        "/// formed by macro methods_enum::gen
+    let head_enum = TokenStream::from_str(
+        r#"
         #[derive(Debug)] 
         #[allow(non_camel_case_types)]
-        enum ",
+        #[doc = "formed by macro `#[methods_enum::gen(...)]`"]
+        enum "#,
     )
     .unwrap();
 
     let methods = Meth::filling_vec(&mut block_it, &mut attr);
 
-    let mut result_ts: TokenStream = out_ts.clone();
+    let mut result_ts: TokenStream = head_enum.clone();
     result_ts.extend([Ident(attr.enum_ident.unwrap())]);
 
     let live_ts = TokenStream::from_str("<'a>").unwrap();
@@ -333,7 +334,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     result_ts.extend([Group(proc_macro::Group::new(Delimiter::Brace, enum_ts))]);
 
     if let Some(out_ident) = &attr.out_ident {
-        result_ts.extend(out_ts);
+        result_ts.extend(head_enum);
         result_ts.extend([Ident(out_ident.clone())]);
         enum_ts = TokenStream::from_str("Unit, ").unwrap();
         refs = false;
@@ -404,9 +405,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             metods_ts.extend([Group(SGroup::new(Delimiter::Brace, body_ts))]);
         }
     }
-
     metods_ts.extend(block_it);
-
     item_ts.extend([Group(SGroup::new(Delimiter::Brace, metods_ts))]);
 
     result_ts.extend(item_ts);

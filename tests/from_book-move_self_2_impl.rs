@@ -23,6 +23,12 @@ mod blog {
         content: String,
     }
 
+    #[methods_enum::gen(Move: run_move)]
+    impl Post {
+        pub fn request_review(self) -> Post;
+        pub fn approve(self) -> Post;
+    }
+
     #[methods_enum::gen(Meth: run_methods)]
     impl Post {
         pub fn add_text(&mut self, text: &str);
@@ -43,19 +49,6 @@ mod blog {
             }
         }
 
-        pub fn new() -> Post {
-            Post {
-                state: State::Draft,
-                content: String::new(),
-            }
-        }
-    }
-
-    #[methods_enum::gen(Move: run_move)]
-    impl Post {
-        pub fn request_review(self) -> Post;
-        pub fn approve(self) -> Post;
-
         #[rustfmt::skip]
         fn run_move(mut self, method: Move) -> Post {
             match self.state {
@@ -70,5 +63,13 @@ mod blog {
                 State::Published => self,
             }
         }
+
+        pub fn new() -> Post {
+            Post {
+                state: State::Draft,
+                content: String::new(),
+            }
+        }
     }
+
 }
