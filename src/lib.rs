@@ -40,55 +40,30 @@ use proc_macro::{
     Delimiter, Group as SGroup, Ident as SIdent, Punct as SPunct, Spacing, Span, TokenStream,
 };
 
-#[derive(Debug)]
-enum Message {
-    Warning,
-    Error,
-    Report,
-}
-use Message::{Error, Report, Warning};
-
-#[derive(Debug)]
-struct Messg {
-    typ: Message,
-    info: String,
-}
-
 #[derive(Debug, Default)]
 struct Attr {
     enum_name: String,
     enum_ident: Option<SIdent>,
     run_method: String,
-    /// "" - none; "?" - conclusion of messages; "!" - panic! and conclusion of messages
-    dbg: &'static str,
+    dbg: bool,
     out_ident: Option<SIdent>,
     strict_types: bool,
-    diagnostics: Vec<Messg>,
+    diagnostics: String,
 }
 impl Attr {
     fn new(attr_ts: TokenStream) -> Attr {
         let mut attr_it = attr_ts.into_iter();
-        let (enum_name, enum_id, dbg) = match attr_it.next() {
-            Some(Ident(enum_i)) => (enum_i.to_string(), enum_i.clone(), ""),
-            Some(Punct(p)) if "?!".contains(&p.to_string()) => match attr_it.next() {
-                Some(Ident(enum_i)) => (
-                    enum_i.to_string(),
-                    enum_i.clone(),
-                    if p.to_string() == "?" { "?" } else { "!" },
-                ),
-                _ => panic!("syntax error in attribute #[methods_enum::gen(?? "),
-            },
+        let (enum_id, dbg, run_method) = match [attr_it.next(), attr_it.next(), attr_it.next()] {
+            [Some(Ident(enum_id)), Some(Punct(p)), Some(Ident(run_method_id))]
+                if ":;".contains(&p.to_string()) =>
+            {
+                (enum_id, p.to_string() == ";", run_method_id.to_string())
+            }
             _ => panic!("syntax error in attribute #[methods_enum::gen(?? "),
         };
-        let run_method = match [attr_it.next(), attr_it.next()] {
-            [Some(Punct(p)), Some(Ident(run_method))] if p.to_string() == ":" => {
-                run_method.to_string()
-            }
-            _ => panic!("syntax error in attribute #[methods_enum::gen({enum_name}??.. "),
-        };
         let attr = Attr {
-            enum_name,
-            enum_ident: Some(enum_id),
+            enum_name: enum_id.to_string(),
+            enum_ident: Some(enum_id.clone()),
             run_method,
             dbg,
             ..Default::default()
@@ -113,9 +88,10 @@ impl Attr {
             self.enum_name, self.run_method
         )
     }
-    fn diagn(&mut self, typ: Message, info: String) {
-        if self.dbg > "" {
-            self.diagnostics.push(Messg { typ, info });
+    fn diagn(&mut self, info: &str) {
+        if self.dbg {
+            self.diagnostics.push_str("\n  - ");
+            self.diagnostics.push_str(info);
         }
     }
 }
@@ -217,14 +193,10 @@ impl Meth {
                         match m.args(gr) {
                             Ok(_) => Ok((Minus, m)),
                             Err(mess) => {
-                                attr.diagn(
-                                    Report,
-                                    format!(
-                                        "skip fn {}: args: {}",
-                                        m.ident.as_ref().unwrap(),
-                                        mess
-                                    ),
-                                );
+                                attr.diagn(&format!(
+                                    "skip fn {}: args: {mess}",
+                                    m.ident.as_ref().unwrap()
+                                ));
                                 Ok((Start, m))
                             }
                         }
@@ -269,14 +241,11 @@ impl Meth {
                     (st, tt) => {
                         if let Start = state {
                         } else {
-                            attr.diagn(
-                                Report,
-                                format!(
-                                    "skip fn {}: expected- {}, found- '{tt}'",
-                                    m.ident.as_ref().unwrap(),
-                                    st.expect()
-                                ),
-                            );
+                            attr.diagn(&format!(
+                                "skip fn {}: expected- {}, found- '{tt}'",
+                                m.ident.as_ref().unwrap(),
+                                st.expect()
+                            ));
                         }
                         m.ts.extend([tt]);
                         Ok((Start, m))
@@ -294,8 +263,6 @@ impl Meth {
     }
 }
 
-//
-//
 //
 //
 //
@@ -328,7 +295,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     };
 
     let out_ts = TokenStream::from_str(
-        "/// formed by macro #[[methods_enum::gen()]]
+        "/// formed by macro methods_enum::gen
         #[derive(Debug)] 
         #[allow(non_camel_case_types)]
         enum ",
@@ -336,8 +303,6 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     .unwrap();
 
     let methods = Meth::filling_vec(&mut block_it, &mut attr);
-
-    // dbg!(&methods);
 
     let mut result_ts: TokenStream = out_ts.clone();
     result_ts.extend([Ident(attr.enum_ident.unwrap())]);
@@ -452,9 +417,14 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
     result_ts.extend(item_ts);
 
-    if attr.dbg > "" {
-        println!("diagnostics: \n{:#?}", attr.diagnostics);
-        println!("result_ts: \n{}", result_ts);
+    if attr.dbg {
+        if !attr.diagnostics.is_empty() {
+            println!("Parsing messages: {}\n", attr.diagnostics);
+        }
+        println!(
+            "Output macro methods_enum::gen to compiler input: \n \n {}\n",
+            result_ts
+        );
     }
 
     result_ts
