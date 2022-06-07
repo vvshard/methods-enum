@@ -54,10 +54,8 @@ impl Attr {
     fn new(attr_ts: TokenStream) -> Attr {
         let mut attr_it = attr_ts.into_iter();
         let (enum_id, run_method) = match [attr_it.next(), attr_it.next(), attr_it.next()] {
-            [Some(Ident(enum_id)), Some(Punct(p)), Some(Ident(run_method_id))]
-                if p.to_string() == ":" =>
-            {
-                (enum_id, run_method_id.to_string())
+            [Some(Ident(enum_id)), Some(Punct(p)), Some(Ident(run_id))] if p.to_string() == ":" => {
+                (enum_id, run_id.to_string())
             }
             _ => panic!("syntax error in attribute #[methods_enum::gen(?? "),
         };
@@ -69,7 +67,6 @@ impl Attr {
         };
         match [attr_it.next(), attr_it.next()] {
             [None, None] => attr,
-            [Some(Punct(p)), None] if p.to_string() == "," => attr,
             [Some(Punct(p)), Some(Ident(out_id))] if p.to_string() == "=" => Attr {
                 out_ident: Some(out_id.clone()),
                 strict_types: match attr_it.next() {
@@ -108,9 +105,10 @@ struct Meth {
     typs: String,
 }
 impl Meth {
-    fn args(&mut self, gr: SGroup) -> bool {
-        let mut args_it = gr.stream().into_iter();
-        self.ts.extend([Group(gr)]);
+    /// on successful parsing of the arguments returns `Minus`, otherwise - `Start`
+    fn args(&mut self, args_gr: SGroup) -> ParseStates {
+        let mut args_it = args_gr.stream().into_iter();
+        self.ts.extend([Group(args_gr)]);
         let mut lg = 0;
         let mut first = true;
         self.params = String::new();
@@ -128,26 +126,26 @@ impl Meth {
                             }
                             self.params += &id.to_string();
                         }
-                        [Some(_tt), _] => break false,
-                        [None, _] => break true,
+                        [Some(_tt), _] => break Start,
+                        [None, _] => break Minus,
                     }
                 }
                 Some(Punct(p)) if "<>".contains(&p.to_string()) => {
                     lg = lg + if p.to_string() == "<" { 1 } else { -1 };
                     self.typs += &p.to_string();
                 }
-                Some(Ident(id)) if id.to_string() == "impl" => break false,
+                Some(Ident(id)) if id.to_string() == "impl" => break Start,
                 Some(Ident(id)) if !first && id.to_string() == "mut" => {
                     self.typs += "mut ";
                 }
                 Some(tt) if !first => self.typs += &tt.to_string(),
-                None => break true,
+                None => break Minus,
                 _ => (),
             };
         }
     }
 
-    fn filling_vec(iit: &mut IntoIter, attr: &mut Attr) -> Vec<Meth> {
+    fn filling_vec(iit: &mut IntoIter, attr: &Attr) -> Vec<Meth> {
         let mut methods: Vec<Meth> = Vec::new();
         loop {
             match iit.try_fold((Start, Meth::default()), |(state, mut m), tt| {
@@ -161,16 +159,12 @@ impl Meth {
                         if id.to_string() == attr.run_method {
                             Err((Stop, m))
                         } else {
-                            m.ident = Some(id.clone());
+                            m.ident = Some(id);
                             Ok((Args, m))
                         }
                     }
                     (Args, Group(gr)) if gr.delimiter() == Delimiter::Parenthesis => {
-                        if m.args(gr) {
-                            Ok((Minus, m))
-                        } else {
-                            Ok((Start, m))
-                        }
+                        Ok((m.args(gr), m))
                     }
                     (Minus, Punct(p)) if p.to_string() == "-" => {
                         m.ts.extend([Punct(p)]);
@@ -256,7 +250,7 @@ impl Meth {
 pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     // print_incoming_ts(&attr_ts, &item_ts);
 
-    let mut attr = Attr::new(attr_ts);
+    let attr = Attr::new(attr_ts);
 
     let mut item_it = item_ts.into_iter();
 
@@ -264,10 +258,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         Ident(id) if id.to_string() == "impl" => false,
         _ => true,
     }));
-    item_ts.extend([Ident(proc_macro::Ident::new(
-        "impl",
-        proc_macro::Span::call_site(),
-    ))]);
+    item_ts.extend([Ident(SIdent::new("impl", Span::call_site()))]);
 
     let mut block_it = match [item_it.next(), item_it.next(), item_it.next()]
     {
@@ -278,37 +269,24 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         m => panic!("SYNTAX ERROR: 'this attribute must be set on block impl without treyds and generics': {m:?}"),
     };
 
-    let head_enum = TokenStream::from_str(
-        r#"
-        #[derive(Debug)] 
-        #[allow(non_camel_case_types)]
-        #[doc = "formed by macro `#[methods_enum::gen(...)]`"]
-        enum "#,
-    )
-    .unwrap();
+    let methods = Meth::filling_vec(&mut block_it, &attr);
 
-    let methods = Meth::filling_vec(&mut block_it, &mut attr);
-
-    let mut result_ts: TokenStream = head_enum.clone();
-    result_ts.extend([Ident(attr.enum_ident.unwrap())]);
-
-    let live_ts = TokenStream::from_str("<'a>").unwrap();
-    //                  (name.0, out.1, span.2)
+    //                 (name.0, out.1, span.2)
     let mut outs: Vec<(String, String, Span)> = Vec::new();
     let mut enum_ts = TokenStream::new();
-    let mut refs = false;
+    let mut enum_doc = String::new();
+    let mut refs = "";
     for m in methods.iter() {
         if let Some(ident) = &m.ident {
             enum_ts.extend([Ident(ident.clone())]);
-            enum_ts.extend(TokenStream::from_str(&format!(
-                "({}), ",
-                if m.typs.contains('&') {
-                    refs = true;
-                    m.typs.replace('&', "&'a ")
-                } else {
-                    m.typs.clone()
-                }
-            )));
+            let typs = if m.typs.contains('&') {
+                refs = "<'a>";
+                m.typs.replace('&', "&'a ")
+            } else {
+                m.typs.clone()
+            };
+            enum_ts.extend(TokenStream::from_str(&format!("({typs}), ")));
+            enum_doc.push_str(&format!("\n    {ident}({typs}), "));
             if !m.out.is_empty() {
                 outs.push((
                     ident.to_string(),
@@ -318,39 +296,53 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             }
         }
     }
-    if refs {
-        result_ts.extend(live_ts.clone());
-    }
+
+    let head_enum = r#"
+        #[derive(Debug)] 
+        #[allow(non_camel_case_types)]
+        #[doc = "formed by macro `#[methods_enum::gen(...)]`:"]
+        #[doc = "```"] 
+        #[doc = "enum "#;
+
+    let mut result_ts = TokenStream::from_str(&format!(
+        "{head_enum}{}{refs}{{{enum_doc}\n}}\n```\"] enum ",
+        attr.enum_ident.as_ref().unwrap()
+    ))
+    .unwrap();
+    result_ts.extend([Ident(attr.enum_ident.unwrap())]);
+    result_ts.extend(TokenStream::from_str(refs).unwrap());
     result_ts.extend([Group(proc_macro::Group::new(Delimiter::Brace, enum_ts))]);
 
     if let Some(out_ident) = &attr.out_ident {
-        result_ts.extend(head_enum);
-        result_ts.extend([Ident(out_ident.clone())]);
         enum_ts = TokenStream::from_str("Unit, ").unwrap();
-        refs = false;
+        enum_doc = "\n    Unit,".to_string();
+        refs = "";
         for (name, out, span) in outs.iter() {
             enum_ts.extend([Ident(SIdent::new(name, *span))]);
-            enum_ts.extend(TokenStream::from_str(&format!(
-                "({}), ",
-                if out.contains('&') {
-                    refs = true;
-                    out.replace('&', "&'a ")
-                } else {
-                    out.clone()
-                }
-            )));
+            let typs = if out.contains('&') {
+                refs = "<'a>";
+                out.replace('&', "&'a ").replace("'a  ", "'a ")
+            } else {
+                out.clone()
+            }
+            .replace(" ,", ",")
+            .replace(" <", "<")
+            .replace(" >", ">");
+            enum_ts.extend(TokenStream::from_str(&format!("({typs}), ")));
+            enum_doc.push_str(&format!("\n    {name}({typs}), "));
         }
-        if refs {
-            result_ts.extend(live_ts);
-        }
+        result_ts.extend(
+            TokenStream::from_str(&format!(
+                "{head_enum}{out_ident}{refs}{{{enum_doc}\n}}\n```\"] enum "
+            ))
+            .unwrap(),
+        );
+        result_ts.extend([Ident(out_ident.clone())]);
+        result_ts.extend(TokenStream::from_str(refs).unwrap());
         result_ts.extend([Group(proc_macro::Group::new(Delimiter::Brace, enum_ts))]);
     }
 
     let self_run_enum = format!("self.{}({}::", attr.run_method, attr.enum_name);
-    let varname = match &attr.out_ident {
-        Some(out_ident) => format!("_{}", out_ident).to_lowercase(),
-        None => String::new(),
-    };
     let mut metods_ts = TokenStream::new();
     for m in methods {
         metods_ts.extend(m.ts);
@@ -368,6 +360,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             } else if let Some(out_ident) = &attr.out_ident {
                 body_ts.extend(TokenStream::from_str(&format!("match {call_run}")).unwrap());
                 let out_enum = out_ident.to_string() + "::";
+                let varname = format!("_{}", out_ident).to_lowercase();
                 let out = m.out.to_string();
                 let lside = if attr.strict_types {
                     format!("{out_enum}{ident}(x)")
@@ -398,7 +391,6 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     }
     metods_ts.extend(block_it);
     item_ts.extend([Group(SGroup::new(Delimiter::Brace, metods_ts))]);
-
     result_ts.extend(item_ts);
 
     // println!("result_ts: \n{}\n", result_ts);

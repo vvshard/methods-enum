@@ -1,8 +1,6 @@
-use blog::Post;
-
 #[test]
 fn main() {
-    let mut post = Post::new();
+    let mut post = blog::Post::new();
 
     let mut ext_content = "ex content: ".to_string();
 

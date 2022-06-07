@@ -1,8 +1,6 @@
-use blog::Post;
-
 #[test]
 fn main() {
-    let mut post = Post::new();
+    let mut post = blog::Post::new();
 
     post.add_text("I ate a salad for lunch today");
     assert_eq!("", post.content());
