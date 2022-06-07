@@ -2,44 +2,42 @@
 //! an enum with options named as methods tuples, corresponding for them arguments,
 //! and bodies for that methods calls for handler method this enum of tuples with parameters.
 
-
-// region: debug
-#[allow(unused)]
-// output is shorter than dbg!()
-fn print_incoming_ts(attr_ts: &TokenStream, item_ts: &TokenStream) {
-    println!("attr_ts: \"{}\"", attr_ts.to_string());
-    unvrap_ts(attr_ts.clone(), 0);
-    println!("item_ts: \"{}\"", item_ts.to_string());
-    unvrap_ts(item_ts.clone(), 0);
-}
-#[allow(unused)]
-fn unvrap_ts(ts: TokenStream, lvl: usize) {
-    for tt in ts {
-        let indent = "    ".repeat(lvl);
-        match tt {
-            Group(gr) => {
-                println!("{indent}Group({:?}):", gr.delimiter());
-                unvrap_ts(gr.stream(), lvl + 1);
-            }
-            Ident(id) => println!("{indent}Ident:{id}"),
-            TokenTree::Literal(l) => println!("{indent}Literal:'{l}'"),
-            Punct(p) => println!(
-                "{indent}Punct({}):'{p}'",
-                match p.spacing() {
-                    Spacing::Alone => "Alone",
-                    Spacing::Joint => "Joint",
-                }
-            ),
-        }
-    }
-}
-// endregion: debug
-
+// // region: debug
+// #[allow(unused)]
+// // output is shorter than dbg!()
+// fn print_incoming_ts(attr_ts: &TokenStream, item_ts: &TokenStream) {
+//     println!("attr_ts: \"{}\"", attr_ts.to_string());
+//     unvrap_ts(attr_ts.clone(), 0);
+//     println!("item_ts: \"{}\"", item_ts.to_string());
+//     unvrap_ts(item_ts.clone(), 0);
+// }
+// #[allow(unused)]
+// fn unvrap_ts(ts: TokenStream, lvl: usize) {
+//     for tt in ts {
+//         let indent = "    ".repeat(lvl);
+//         match tt {
+//             Group(gr) => {
+//                 println!("{indent}Group({:?}):", gr.delimiter());
+//                 unvrap_ts(gr.stream(), lvl + 1);
+//             }
+//             Ident(id) => println!("{indent}Ident:{id}"),
+//             TokenTree::Literal(l) => println!("{indent}Literal:'{l}'"),
+//             Punct(p) => println!(
+//                 "{indent}Punct({}):'{p}'",
+//                 match p.spacing() {
+//                     Spacing::Alone => "Alone",
+//                     Spacing::Joint => "Joint",
+//                 }
+//             ),
+//         }
+//     }
+// }
+// // endregion: debug
 
 use core::str::FromStr;
 
 use proc_macro::token_stream::IntoIter;
-use proc_macro::TokenTree::{self, Group, Ident, Punct};
+use proc_macro::TokenTree::{Group, Ident, Punct};
 use proc_macro::{
     Delimiter, Group as SGroup, Ident as SIdent, Punct as SPunct, Spacing, Span, TokenStream,
 };
@@ -49,19 +47,17 @@ struct Attr {
     enum_name: String,
     enum_ident: Option<SIdent>,
     run_method: String,
-    dbg: bool,
     out_ident: Option<SIdent>,
     strict_types: bool,
-    diagnostics: String,
 }
 impl Attr {
     fn new(attr_ts: TokenStream) -> Attr {
         let mut attr_it = attr_ts.into_iter();
-        let (enum_id, dbg, run_method) = match [attr_it.next(), attr_it.next(), attr_it.next()] {
+        let (enum_id, run_method) = match [attr_it.next(), attr_it.next(), attr_it.next()] {
             [Some(Ident(enum_id)), Some(Punct(p)), Some(Ident(run_method_id))]
-                if ":?".contains(&p.to_string()) =>
+                if p.to_string() == ":" =>
             {
-                (enum_id, p.to_string() == "?", run_method_id.to_string())
+                (enum_id, run_method_id.to_string())
             }
             _ => panic!("syntax error in attribute #[methods_enum::gen(?? "),
         };
@@ -69,11 +65,11 @@ impl Attr {
             enum_name: enum_id.to_string(),
             enum_ident: Some(enum_id.clone()),
             run_method,
-            dbg,
             ..Default::default()
         };
         match [attr_it.next(), attr_it.next()] {
             [None, None] => attr,
+            [Some(Punct(p)), None] if p.to_string() == "," => attr,
             [Some(Punct(p)), Some(Ident(out_id))] if p.to_string() == "=" => Attr {
                 out_ident: Some(out_id.clone()),
                 strict_types: match attr_it.next() {
@@ -86,12 +82,6 @@ impl Attr {
                 "syntax error in attribute #[methods_enum::gen({}:{}??..",
                 attr.enum_name, attr.run_method
             ),
-        }
-    }
-    fn diagn(&mut self, info: &str) {
-        if self.dbg {
-            self.diagnostics.push_str("\n  - ");
-            self.diagnostics.push_str(info);
         }
     }
 }
@@ -107,17 +97,6 @@ enum ParseStates {
     Out,
 }
 use ParseStates::*;
-impl ParseStates {
-    fn expect(&self) -> &'static str {
-        match self {
-            Name => "function name",
-            Args => "`(`",
-            Minus => "one of: `-`, `{`, `;`",
-            Gt => "`>`",
-            _ => "",
-        }
-    }
-}
 
 #[derive(Debug, Default)]
 struct Meth {
@@ -129,8 +108,9 @@ struct Meth {
     typs: String,
 }
 impl Meth {
-    fn args(&mut self, gr: SGroup) -> Result<(), String> {
+    fn args(&mut self, gr: SGroup) -> bool {
         let mut args_it = gr.stream().into_iter();
+        self.ts.extend([Group(gr)]);
         let mut lg = 0;
         let mut first = true;
         self.params = String::new();
@@ -148,27 +128,23 @@ impl Meth {
                             }
                             self.params += &id.to_string();
                         }
-                        [Some(tt), _] => return Err(tt.to_string()),
-                        [None, _] => break,
+                        [Some(_tt), _] => break false,
+                        [None, _] => break true,
                     }
                 }
                 Some(Punct(p)) if "<>".contains(&p.to_string()) => {
                     lg = lg + if p.to_string() == "<" { 1 } else { -1 };
                     self.typs += &p.to_string();
                 }
-                Some(Ident(id)) if id.to_string() == "impl" => {
-                    return Err("generalized arg: 'impl'".to_string())
-                }
+                Some(Ident(id)) if id.to_string() == "impl" => break false,
                 Some(Ident(id)) if !first && id.to_string() == "mut" => {
                     self.typs += "mut ";
                 }
                 Some(tt) if !first => self.typs += &tt.to_string(),
-                None => break,
+                None => break true,
                 _ => (),
             };
         }
-        self.ts.extend([Group(gr)]);
-        Ok(())
     }
 
     fn filling_vec(iit: &mut IntoIter, attr: &mut Attr) -> Vec<Meth> {
@@ -190,15 +166,10 @@ impl Meth {
                         }
                     }
                     (Args, Group(gr)) if gr.delimiter() == Delimiter::Parenthesis => {
-                        match m.args(gr) {
-                            Ok(_) => Ok((Minus, m)),
-                            Err(mess) => {
-                                attr.diagn(&format!(
-                                    "skip fn {}: args: {mess}",
-                                    m.ident.as_ref().unwrap()
-                                ));
-                                Ok((Start, m))
-                            }
+                        if m.args(gr) {
+                            Ok((Minus, m))
+                        } else {
+                            Ok((Start, m))
                         }
                     }
                     (Minus, Punct(p)) if p.to_string() == "-" => {
@@ -238,15 +209,7 @@ impl Meth {
                         m.ts.extend([tt]);
                         Ok((state, m))
                     }
-                    (st, tt) => {
-                        if let Start = state {
-                        } else {
-                            attr.diagn(&format!(
-                                "skip fn {}: expected- {}, found- '{tt}'",
-                                m.ident.as_ref().unwrap(),
-                                st.expect()
-                            ));
-                        }
+                    (_, tt) => {
                         m.ts.extend([tt]);
                         Ok((Start, m))
                     }
@@ -266,13 +229,13 @@ impl Meth {
 /// By signatures from methods without bodies, are formed:
 /// an enum with options named as methods tuples, corresponding for them arguments,
 /// and bodies for that methods calls for handler method this enum of tuples with parameters.
-/// 
+///
 /// This allows the handler method to manipulate the behavior of the methods depending on the context.
 ///
 /// There are two options syntaxes:
-/// 
+///
 /// 1- For case when methods that return a value have the same return type:
-/// 
+///
 /// `#[methods_enum::gen(`*EnumName*`: `*handler_name*`)]`
 ///
 /// where:
@@ -282,12 +245,12 @@ impl Meth {
 /// 2- For the case of more than one meaningful return type:
 ///
 /// `#[methods_enum::gen(`*EnumName*`: `*handler_name*` = `*OutName*`)]`
-/// 
+///
 /// where - *OutName*: the name of the automatically retrieved enum
 /// with method-named options single-tuples of the return type.
-/// 
+///
 /// In this case, you can also specify default return value expressions in the method signature.
-/// 
+///
 /// For more details, see the [module documentation](self)
 #[proc_macro_attribute]
 pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
@@ -419,7 +382,8 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                 if m.default.is_empty() {
                     match_ts.extend(
                         TokenStream::from_str(&format!(
-                            "panic!(\"type mismatch: expected- {}, found- {{:?}}\", {varname})",
+                            "panic!(\"type mismatch in {ident}() metod: expected- {}, \
+                            found- {out_enum}{{:?}}\", {varname})",
                             lside.replace("(x)", &format!("({out})"))
                         ))
                         .unwrap(),
@@ -437,15 +401,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
     result_ts.extend(item_ts);
 
-    if attr.dbg {
-        if !attr.diagnostics.is_empty() {
-            println!("Parsing messages: {}\n", attr.diagnostics);
-        }
-        println!(
-            "Output macro methods_enum::gen to compiler input: \n \n {}\n",
-            result_ts
-        );
-    }
+    // println!("result_ts: \n{}\n", result_ts);
 
     result_ts
 }
