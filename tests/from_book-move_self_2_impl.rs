@@ -5,10 +5,12 @@ fn main() {
     let mut post = Post::new();
 
     post.add_text("I ate a salad for lunch today");
+    assert_eq!("", post.content());
 
-    post = post.request_review().approve();
-
-    assert_eq!("I ate a salad for lunch today", post.content());
+    assert_eq!(
+        "I ate a salad for lunch today",
+        post.request_review().approve().content()
+    );
 }
 
 mod blog {
@@ -71,5 +73,4 @@ mod blog {
             }
         }
     }
-
 }

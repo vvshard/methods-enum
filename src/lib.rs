@@ -1,3 +1,8 @@
+//! By signatures from methods without bodies, are formed:
+//! an enum with options named as methods tuples, corresponding for them arguments,
+//! and bodies for that methods calls for handler method this enum of tuples with parameters.
+
+
 // region: debug
 #[allow(unused)]
 // output is shorter than dbg!()
@@ -29,6 +34,7 @@ fn unvrap_ts(ts: TokenStream, lvl: usize) {
     }
 }
 // endregion: debug
+
 
 use core::str::FromStr;
 
@@ -97,7 +103,7 @@ enum ParseStates {
     Name,
     Args,
     Minus,
-    Lg,
+    Gt,
     Out,
 }
 use ParseStates::*;
@@ -107,7 +113,7 @@ impl ParseStates {
             Name => "function name",
             Args => "`(`",
             Minus => "one of: `-`, `{`, `;`",
-            Lg => "`>`",
+            Gt => "`>`",
             _ => "",
         }
     }
@@ -197,9 +203,9 @@ impl Meth {
                     }
                     (Minus, Punct(p)) if p.to_string() == "-" => {
                         m.ts.extend([Punct(p)]);
-                        Ok((Lg, m))
+                        Ok((Gt, m))
                     }
-                    (Lg, Punct(p)) if p.to_string() == ">" => {
+                    (Gt, Punct(p)) if p.to_string() == ">" => {
                         m.ts.extend([Punct(p)]);
                         Ok((Out, m))
                     }
@@ -257,11 +263,32 @@ impl Meth {
     }
 }
 
-//
-//
-//
-//
-
+/// By signatures from methods without bodies, are formed:
+/// an enum with options named as methods tuples, corresponding for them arguments,
+/// and bodies for that methods calls for handler method this enum of tuples with parameters.
+/// 
+/// This allows the handler method to manipulate the behavior of the methods depending on the context.
+///
+/// There are two options syntaxes:
+/// 
+/// 1- For case when methods that return a value have the same return type:
+/// 
+/// `#[methods_enum::gen(`*EnumName*`: `*handler_name*`)]`
+///
+/// where:
+/// - *EnumName*: The name of the automatically accepted enumeration.
+/// - *handler_name*: name of the handler method
+///
+/// 2- For the case of more than one meaningful return type:
+///
+/// `#[methods_enum::gen(`*EnumName*`: `*handler_name*` = `*OutName*`)]`
+/// 
+/// where - *OutName*: the name of the automatically retrieved enum
+/// with method-named options single-tuples of the return type.
+/// 
+/// In this case, you can also specify default return value expressions in the method signature.
+/// 
+/// For more details, see the [module documentation](self)
 #[proc_macro_attribute]
 pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     // print_incoming_ts(&attr_ts, &item_ts);
@@ -358,7 +385,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
     let self_run_enum = format!("self.{}({}::", attr.run_method, attr.enum_name);
     let varname = match &attr.out_ident {
-        Some(out_ident) => format!("_{}", out_ident),
+        Some(out_ident) => format!("_{}", out_ident).to_lowercase(),
         None => String::new(),
     };
     let mut metods_ts = TokenStream::new();
