@@ -1,38 +1,5 @@
-//! By signatures from methods without bodies, are formed:
-//! an enum with options named as methods tuples, corresponding for them arguments,
-//! and bodies for that methods calls for handler method this enum of tuples with parameters.
-
-// // region: debug
-// #[allow(unused)]
-// // output is shorter than dbg!()
-// fn print_incoming_ts(attr_ts: &TokenStream, item_ts: &TokenStream) {
-//     println!("attr_ts: \"{}\"", attr_ts.to_string());
-//     unvrap_ts(attr_ts.clone(), 0);
-//     println!("item_ts: \"{}\"", item_ts.to_string());
-//     unvrap_ts(item_ts.clone(), 0);
-// }
-// #[allow(unused)]
-// fn unvrap_ts(ts: TokenStream, lvl: usize) {
-//     for tt in ts {
-//         let indent = "    ".repeat(lvl);
-//         match tt {
-//             Group(gr) => {
-//                 println!("{indent}Group({:?}):", gr.delimiter());
-//                 unvrap_ts(gr.stream(), lvl + 1);
-//             }
-//             Ident(id) => println!("{indent}Ident:{id}"),
-//             TokenTree::Literal(l) => println!("{indent}Literal:'{l}'"),
-//             Punct(p) => println!(
-//                 "{indent}Punct({}):'{p}'",
-//                 match p.spacing() {
-//                     Spacing::Alone => "Alone",
-//                     Spacing::Joint => "Joint",
-//                 }
-//             ),
-//         }
-//     }
-// }
-// // endregion: debug
+#![doc = include_str!("../README.md")]
+//! see description in [crate documentation](crate)
 
 use core::str::FromStr;
 
@@ -95,7 +62,7 @@ enum ParseStates {
 }
 use ParseStates::*;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct Meth {
     ident: Option<SIdent>,
     ts: TokenStream,
@@ -245,10 +212,10 @@ impl Meth {
 ///
 /// In this case, you can also specify default return value expressions in the method signature.
 ///
-/// For more details, see the [module documentation](self)
+/// For more details, see the [module documentation](crate)
 #[proc_macro_attribute]
 pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
-    // print_incoming_ts(&attr_ts, &item_ts);
+    // std::fs::write("target/debug/item_ts.txt", format!("{}\n\n{0:#?}", item_ts)).unwrap();
 
     let attr = Attr::new(attr_ts);
 
@@ -297,12 +264,13 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         }
     }
 
-    let head_enum = r#"
+    let head_enum = r##"
         #[derive(Debug)] 
         #[allow(non_camel_case_types)]
         #[doc = "formed by macro `#[methods_enum::gen(...)]`:"]
         #[doc = "```"] 
-        #[doc = "enum "#;
+        #[doc = "#[derive(Debug)]"] 
+        #[doc = "enum "##;
 
     let mut result_ts = TokenStream::from_str(&format!(
         "{head_enum}{}{refs}{{{enum_doc}\n}}\n```\"] enum ",
@@ -393,7 +361,9 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     item_ts.extend([Group(SGroup::new(Delimiter::Brace, metods_ts))]);
     result_ts.extend(item_ts);
 
-    // println!("result_ts: \n{}\n", result_ts);
+    if std::env::var("METHODS_ENUM_DBG").map_or(false, |v| &v != "0") {
+        println!("\nMETHODS_ENUM_DBG output:\n{}\n", result_ts);
+    }
 
     result_ts
 }
