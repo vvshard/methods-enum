@@ -54,6 +54,7 @@ impl Attr {
 enum ParseStates {
     Stop,
     Start,
+    Pub,
     Name,
     Args,
     Minus,
@@ -66,20 +67,31 @@ use ParseStates::*;
 struct Meth {
     ident: Option<SIdent>,
     ts: TokenStream,
-    out: TokenStream,
-    default: TokenStream,
+    pub_s: &'static str,
+    args: String,
     params: String,
     typs: String,
+    gt_span: Option<Span>,
+    out: TokenStream,
+    default: TokenStream,
 }
 impl Meth {
     /// on successful parsing of the arguments returns `Minus`, otherwise - `Start`
-    fn args(&mut self, args_gr: SGroup) -> ParseStates {
+    fn args_parsing(&mut self, args_gr: SGroup) -> ParseStates {
+        self.args = (args_gr.stream().to_string())
+            .replace("& ", "&")
+            .replace(": ", ":")
+            .replace(" ,", ",")
+            .replace(" <", "<")
+            .replace(" >", ">");
         let mut args_it = args_gr.stream().into_iter();
         self.ts.extend([Group(args_gr)]);
         let mut lg = 0;
         let mut first = true;
         self.params = String::new();
         self.typs = String::new();
+        self.gt_span = None;
+        self.out = TokenStream::new();
         loop {
             match args_it.next() {
                 Some(Punct(p)) if p.to_string() == "," && lg == 0 => {
@@ -88,8 +100,8 @@ impl Meth {
                             if first {
                                 first = false;
                             } else {
-                                self.params += ", ";
-                                self.typs += ", ";
+                                self.params.push_str(", ");
+                                self.typs.push_str(", ");
                             }
                             self.params += &id.to_string();
                         }
@@ -103,12 +115,12 @@ impl Meth {
                 }
                 Some(Ident(id)) if id.to_string() == "impl" => break Start,
                 Some(Ident(id)) if !first && id.to_string() == "mut" => {
-                    self.typs += "mut ";
+                    self.typs.push_str("mut ");
                 }
-                Some(tt) if !first => self.typs += &tt.to_string(),
+                Some(tt) if !first => self.typs.push_str(&tt.to_string()),
                 None => break Minus,
                 _ => (),
-            };
+            }
         }
     }
 
@@ -117,7 +129,12 @@ impl Meth {
         loop {
             match iit.try_fold((Start, Meth::default()), |(state, mut m), tt| {
                 match (state, tt) {
-                    (Start, Ident(id)) if id.to_string() == "fn" => {
+                    (Start, Ident(id)) if id.to_string() == "pub" => {
+                        m.ts.extend([Ident(id)]);
+                        Ok((Pub, m))
+                    }
+                    (st @ (Start | Pub), Ident(id)) if id.to_string() == "fn" => {
+                        m.pub_s = if let Start = st { "" } else { "pub " };
                         m.ts.extend([Ident(id)]);
                         Ok((Name, m))
                     }
@@ -131,13 +148,14 @@ impl Meth {
                         }
                     }
                     (Args, Group(gr)) if gr.delimiter() == Delimiter::Parenthesis => {
-                        Ok((m.args(gr), m))
+                        Ok((m.args_parsing(gr), m))
                     }
                     (Minus, Punct(p)) if p.to_string() == "-" => {
                         m.ts.extend([Punct(p)]);
                         Ok((Gt, m))
                     }
                     (Gt, Punct(p)) if p.to_string() == ">" => {
+                        m.gt_span = Some(p.span());
                         m.ts.extend([Punct(p)]);
                         Ok((Out, m))
                     }
@@ -151,13 +169,11 @@ impl Meth {
                     {
                         // skip fn with body
                         m.ts.extend([Group(gr)]);
-                        m.out = TokenStream::new();
                         Ok((Start, m))
                     }
                     (Out, Ident(id)) if id.to_string() == "where" => {
                         // skip the generalized fn
                         m.ts.extend([Ident(id)]);
-                        m.out = TokenStream::new();
                         Ok((Start, m))
                     }
                     (Minus | Out, Punct(p)) if p.to_string() == ";" => Err((state, m)),
@@ -187,32 +203,31 @@ impl Meth {
     }
 }
 
-/// By signatures from methods without bodies, are formed:
-/// an enum with options named as methods tuples, corresponding for them arguments,
-/// and bodies for that methods calls for handler method this enum of tuples with parameters.
+/// Based on method signatures, the following are formed enum with options from argument tuples
+///   and the bodies of those methods, with an argument handler method call from that enum.
 ///
-/// This allows the handler method to manipulate the behavior of the methods depending on the context.
+/// This allows the handler method to control the behavior of the methods depending on the context.
 ///
-/// There are two options syntaxes:
+/// There are two syntax options:
 ///
-/// 1- For case when methods that return a value have the same return type:
+/// 1. For the case where methods returning a value have the same return type:
 ///
 /// `#[methods_enum::gen(`*EnumName*`: `*handler_name*`)]`
 ///
 /// where:
-/// - *EnumName*: The name of the automatically accepted enumeration.
-/// - *handler_name*: name of the handler method
+/// - *EnumName*: the name of the automatically generated enum.
+/// - *handler_name*: handler method name
 ///
-/// 2- For the case of more than one meaningful return type:
+/// 2. In case of more than one meaningful return type:
 ///
 /// `#[methods_enum::gen(`*EnumName*`: `*handler_name*` = `*OutName*`)]`
 ///
-/// where - *OutName*: the name of the automatically retrieved enum
-/// with method-named options single-tuples of the return type.
+/// where:
+///  - *OutName*: the name of the automatically generated enum with options from single tuples of return types.
 ///
-/// In this case, you can also specify default return value expressions in the method signature.
+/// In this case, you can also specify default return value expressions.
 ///
-/// For more details, see the [module documentation](crate)
+/// See the [module documentation](crate) for details.
 #[proc_macro_attribute]
 pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     // std::fs::write("target/debug/item_ts.txt", format!("{}\n\n{0:#?}", item_ts)).unwrap();
@@ -227,17 +242,27 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     }));
     item_ts.extend([Ident(SIdent::new("impl", Span::call_site()))]);
 
-    let mut block_it = match [item_it.next(), item_it.next(), item_it.next()]
-    {
+    let mut block_it = match [item_it.next(), item_it.next(), item_it.next()] {
         [Some(Ident(item_n)), Some(Group(gr)), None] if gr.delimiter() == Delimiter::Brace => {
             item_ts.extend([Ident(item_n)]);
             gr.stream().into_iter()
         }
-        m => panic!("SYNTAX ERROR: 'this attribute must be set on block impl without treyds and generics': {m:?}"),
+        m => panic!(
+            "SYNTAX ERROR: 
+        'this attribute must be set on block impl without treyds and generics': {m:?}"
+        ),
     };
 
     let methods = Meth::filling_vec(&mut block_it, &attr);
 
+    let head_enum = r##"
+        #[allow(non_camel_case_types)]
+        #[derive(Debug)] 
+        /// formed by macro `#[methods_enum::gen(...)]`:
+        /// ```
+        /// #[allow(non_camel_case_types)]
+        /// #[derive(Debug)]
+        #[doc = "enum "##;
     //                 (name.0, out.1, span.2)
     let mut outs: Vec<(String, String, Span)> = Vec::new();
     let mut enum_ts = TokenStream::new();
@@ -254,32 +279,107 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             };
             enum_ts.extend(TokenStream::from_str(&format!("({typs}), ")));
             enum_doc.push_str(&format!("\n    {ident}({typs}), "));
-            if !m.out.is_empty() {
+            if let Some(gt_span) = m.gt_span {
                 outs.push((
                     ident.to_string(),
-                    m.out.to_string(),
-                    m.out.clone().into_iter().next().unwrap().span(),
+                    (m.out.to_string())
+                        .replace("& ", "&")
+                        .replace(" ,", ",")
+                        .replace(" <", "<")
+                        .replace(" >", ">"),
+                    gt_span,
                 ));
             }
         }
     }
+    enum_doc.push_str("\n}\n\n");
+    enum_doc.push_str(
+        r#"//--- fn bodies generated by the `#[methods_enum::gen(...)]` macro: ---
+    "#,
+    );
 
-    let head_enum = r##"
-        #[derive(Debug)] 
-        #[allow(non_camel_case_types)]
-        #[doc = "formed by macro `#[methods_enum::gen(...)]`:"]
-        #[doc = "```"] 
-        #[doc = "#[derive(Debug)]"] 
-        #[doc = "enum "##;
+    let is_result = attr.out_ident.is_none() && outs.iter().any(|t| t.1.contains("Result<"));
+    let self_run_enum = format!("self.{}({}::", attr.run_method, attr.enum_name);
+    let mut metods_ts = TokenStream::new();
+    for m in methods {
+        metods_ts.extend(m.ts);
+        if let Some(ident) = m.ident {
+            enum_doc.push_str(&format!("\n{}fn {ident}({})", m.pub_s, m.args));
+            let mut body_ts = TokenStream::new();
+            let out = if m.out.is_empty() {
+                enum_doc.push_str("{");
+                if is_result {
+                    enum_doc.push_str("\n    #![allow(unused_must_use)]");
+                    body_ts.extend(TokenStream::from_str("#![allow(unused_must_use)]").unwrap());
+                }
+                String::new()
+            } else {
+                let name = ident.to_string();
+                let find_out = outs.iter().find(|t| t.0 == name).unwrap().1.clone();
+                enum_doc.push_str(&format!(" -> {find_out}{{"));
+                find_out
+            };
+            let call_run = format!("{self_run_enum}{ident}({}))", m.params);
+            if attr.out_ident.is_none() || m.out.is_empty() {
+                enum_doc.push_str(&format!("\n    {call_run}"));
+                body_ts.extend(TokenStream::from_str(&call_run).unwrap());
+                if m.out.is_empty() {
+                    enum_doc.push_str(";");
+                    body_ts.extend([Punct(SPunct::new(';', Spacing::Alone))]);
+                }
+            } else if let Some(out_ident) = &attr.out_ident {
+                enum_doc.push_str(&format!("\n    match {call_run} {{"));
+                body_ts.extend(TokenStream::from_str(&format!("match {call_run}")).unwrap());
+                let out_enum = out_ident.to_string() + "::";
+                let varname = format!("_{}", out_ident).to_lowercase();
+                let lside = if attr.strict_types {
+                    format!("{out_enum}{ident}(x)")
+                } else {
+                    (outs.iter())
+                        .filter_map(|(n, o, _)| (o == &out).then(|| out_enum.clone() + n + "(x)"))
+                        .reduce(|s, n| s + " | " + &n)
+                        .unwrap()
+                };
+                enum_doc.push_str(&format!("\n        {lside} => x,\n        {varname} => "));
+                let mut match_ts =
+                    TokenStream::from_str(&format!("{lside} => x, {varname} => ")).unwrap();
+                if m.default.is_empty() {
+                    let panic_s = format!(
+                        "panic!(
+                \"type mismatch in {ident}() metod:
+                    expected- {},
+                    found- {out_enum}{{:?}}\", 
+                {varname})",
+                        lside
+                            .replace("(x)", &format!("({out})"))
+                            .replace(" | ", "\n                            | ")
+                    );
+                    enum_doc.push_str(&panic_s.replace('"', "\\\""));
+                    match_ts.extend(TokenStream::from_str(&panic_s).unwrap());
+                } else {
+                    enum_doc.push_str(&m.default.to_string().replace('"', "\\\""));
+                    match_ts.extend(m.default);
+                }
+                enum_doc.push_str("\n    }");
+                body_ts.extend([Group(SGroup::new(Delimiter::Brace, match_ts))]);
+            }
+            enum_doc.push_str("\n}");
+            metods_ts.extend([Group(SGroup::new(Delimiter::Brace, body_ts))]);
+        }
+    }
+    metods_ts.extend(block_it);
+    item_ts.extend([Group(SGroup::new(Delimiter::Brace, metods_ts))]);
 
     let mut result_ts = TokenStream::from_str(&format!(
-        "{head_enum}{}{refs}{{{enum_doc}\n}}\n```\"] enum ",
+        "{head_enum}{}{refs}{{{enum_doc}\n```\"] enum ",
         attr.enum_ident.as_ref().unwrap()
     ))
     .unwrap();
     result_ts.extend([Ident(attr.enum_ident.unwrap())]);
     result_ts.extend(TokenStream::from_str(refs).unwrap());
     result_ts.extend([Group(proc_macro::Group::new(Delimiter::Brace, enum_ts))]);
+
+    result_ts.extend(item_ts);
 
     if let Some(out_ident) = &attr.out_ident {
         enum_ts = TokenStream::from_str("Unit, ").unwrap();
@@ -292,10 +392,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                 out.replace('&', "&'a ").replace("'a  ", "'a ")
             } else {
                 out.clone()
-            }
-            .replace(" ,", ",")
-            .replace(" <", "<")
-            .replace(" >", ">");
+            };
             enum_ts.extend(TokenStream::from_str(&format!("({typs}), ")));
             enum_doc.push_str(&format!("\n    {name}({typs}), "));
         }
@@ -310,59 +407,11 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         result_ts.extend([Group(proc_macro::Group::new(Delimiter::Brace, enum_ts))]);
     }
 
-    let self_run_enum = format!("self.{}({}::", attr.run_method, attr.enum_name);
-    let mut metods_ts = TokenStream::new();
-    for m in methods {
-        metods_ts.extend(m.ts);
-        if let Some(ident) = m.ident {
-            let call_run = format!("{self_run_enum}{ident}({}))", m.params);
-            let mut body_ts = match m.out.is_empty() {
-                true => TokenStream::from_str("#![allow(unused_must_use)]").unwrap(),
-                false => TokenStream::new(),
-            };
-            if attr.out_ident.is_none() || m.out.is_empty() {
-                body_ts.extend(TokenStream::from_str(&call_run).unwrap());
-                if m.out.is_empty() {
-                    body_ts.extend([Punct(SPunct::new(';', Spacing::Alone))]);
-                }
-            } else if let Some(out_ident) = &attr.out_ident {
-                body_ts.extend(TokenStream::from_str(&format!("match {call_run}")).unwrap());
-                let out_enum = out_ident.to_string() + "::";
-                let varname = format!("_{}", out_ident).to_lowercase();
-                let out = m.out.to_string();
-                let lside = if attr.strict_types {
-                    format!("{out_enum}{ident}(x)")
-                } else {
-                    (outs.iter())
-                        .filter_map(|(n, o, _)| (o == &out).then(|| out_enum.clone() + n + "(x)"))
-                        .reduce(|s, n| s + " | " + &n)
-                        .unwrap()
-                };
-                let mut match_ts =
-                    TokenStream::from_str(&format!("{lside} => x, {varname} => ")).unwrap();
-                if m.default.is_empty() {
-                    match_ts.extend(
-                        TokenStream::from_str(&format!(
-                            "panic!(\"type mismatch in {ident}() metod: expected- {}, \
-                            found- {out_enum}{{:?}}\", {varname})",
-                            lside.replace("(x)", &format!("({out})"))
-                        ))
-                        .unwrap(),
-                    );
-                } else {
-                    match_ts.extend(m.default);
-                }
-                body_ts.extend([Group(SGroup::new(Delimiter::Brace, match_ts))]);
-            }
-            metods_ts.extend([Group(SGroup::new(Delimiter::Brace, body_ts))]);
-        }
-    }
-    metods_ts.extend(block_it);
-    item_ts.extend([Group(SGroup::new(Delimiter::Brace, metods_ts))]);
-    result_ts.extend(item_ts);
-
-    if std::env::var("METHODS_ENUM_DBG").map_or(false, |v| &v != "0") {
-        println!("\nMETHODS_ENUM_DBG output:\n{}\n", result_ts);
+    if std::env::var("M_ENUM_DBG").map_or(false, |v| &v != "0") {
+        println!(
+            "\nM_ENUM_DBG - output to compiler input for enum {}:\n{}\n",
+            attr.enum_name, result_ts
+        );
     }
 
     result_ts
