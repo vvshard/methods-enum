@@ -121,9 +121,9 @@ In the handler method (in this case, `run_methods`), simply write for each state
 
 The macro duplicates the output for the compiler in the doc-comments. Therefore, in the IDE[^ide], you can always see the declaration of the generated `enum` and the generated method bodies, in the popup hint above the enum name:
 
-![enum popup hint](..\methods_enum-img/from_book__enum-popup.png)
+![enum popup hint](https://github.com/vvshard/methods-enum/tree/master/doc/img/from_book__enum-popup.png)
 
-![enum popup: bodies](..\methods_enum-img/from_book__enum-popup-bodies.png)
+![enum popup: bodies](https://github.com/vvshard/methods-enum/tree/master/doc/img/from_book__enum-popup-bodies.png)
 
 [^ide]: IDE support tested on 'rust-analyzer for VS Code v0.3.1083' - everything works: highlighting, tooltips, transitions, renames.
 
@@ -411,9 +411,9 @@ mod blog {
 ```
 The `enum Out` declaration and the generated method bodies can be seen in the tooltip:
 
-![enum popup hint](..\methods_enum-img/from_book__enumOut-popup.png)
+![enum popup hint](https://github.com/vvshard/methods-enum/tree/master/doc/img/from_book__enumOut-popup.png)
 
-![enum popup: bodies](..\methods_enum-img/from_book__Out-popup_bodies.png)
+![enum popup: bodies](https://github.com/vvshard/methods-enum/tree/master/doc/img/from_book__Out-popup_bodies.png)
 
 As you might guess from the last screenshot, the default value expression can use a return from a handler method in a variable with a name derived from *OutName* by converting it to lower case and preceding it with an underscore.
 
@@ -521,9 +521,9 @@ mod blog {
 // . . .
 }
 ```
-![enum popup hint](..\methods_enum-img/from_book__2res-popup_Out.png)
+![enum popup hint](https://github.com/vvshard/methods-enum/tree/master/doc/img/from_book__2res-popup_Out.png)
 
-![enum popup: bodies](..\methods_enum-img/from_book__2res-popup_bodies.png)
+![enum popup: bodies](https://github.com/vvshard/methods-enum/tree/master/doc/img/from_book__2res-popup_bodies.png)
 
 ---
 All examples as .rs files plus from_book-task_and_2_result.rs file with extension to book task and using `Unit` are located in the directory: <./tests/>

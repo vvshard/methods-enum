@@ -2,3 +2,4 @@
 /Cargo.lock
 /tests_
 /tests/*.rs_
+/.vscode
