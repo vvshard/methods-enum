@@ -28,7 +28,7 @@ In the second case, you can also specify an expression for the default return va
 ## Usage example 
 
 [Chapter 17.3 "Implementing an Object-Oriented Design Pattern" of the rust-book](https://doc.rust-lang.org/book/ch17-03-oo-design-patterns.html) shows an implementation of the *state pattern* in rust that provides the following behavior:
-```rust
+```rust ignore
 fn main() {
     let mut post = blog::Post::new();
 
@@ -41,8 +41,6 @@ fn main() {
     post.approve();
     assert_eq!("I ate a salad for lunch today", post.content());
 }
-
-# mod blog { enum State { Draft, PendingReview, Published, } pub struct Post { state: State, content: String, } #[methods_enum::gen(Meth: run_methods)] impl Post { pub fn add_text(&mut self, text: &str); pub fn request_review(&mut self); pub fn approve(&mut self); pub fn content(&mut self) -> &str; fn run_methods(&mut self, method: Meth) -> &str { match self.state { State::Draft => match method { Meth::add_text(text) => { self.content.push_str(text); "" } Meth::request_review() => { self.state = State::PendingReview; "" } _ => "", }, State::PendingReview => match method { Meth::approve() => { self.state = State::Published; "" } _ => "", }, State::Published => match method { Meth::content() => &self.content, _ => "", }, } } pub fn new() -> Post { Post { state: State::Draft, content: String::new(), } } } }
 ```
 The dyn Trait option proposed in the book requires dynamic binding and duplication of logic. 
 The option on different types is not applicable in cases where a single interface is required for states.
@@ -50,7 +48,7 @@ The option on different types is not applicable in cases where a single interfac
 By setting in Cargo.toml:
 ```toml
 [dependencies]
-methods-enum = "0.1.1"
+methods-enum = "0.1.3"
 ```
 this can be solved, for example, like this: 
 
