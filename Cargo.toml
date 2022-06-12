@@ -7,7 +7,7 @@ description = "Lightweight (no dependencies) attribute-like macro for â€œstateâ€
 readme = "README.md"
 license = "MIT OR Apache-2.0"
 categories = ["rust-patterns"]
-keywords = ["macro", "methods", "enum", "oop", "state", "pattern"]
+keywords = ["macro", "methods", "enum", "state", "pattern"]
 repository = "https://github.com/vvshard/methods-enum"
 
 [lib]
