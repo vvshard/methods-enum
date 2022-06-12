@@ -1,9 +1,10 @@
 [package]
 name = "methods-enum"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Vladimir Shardinov <vvshard@gmail.com>"]
 description = "Lightweight (no dependencies) attribute-like macro for “state” and “state machine” design patterns without dyn Trait (based on enum) with decoding output in doc-comments."
+readme = "README.md"
 license = "MIT OR Apache-2.0"
 categories = ["rust-patterns"]
 keywords = ["macro", "methods", "enum", "oop", "state"]
