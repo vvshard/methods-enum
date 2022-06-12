@@ -526,5 +526,5 @@ mod blog {
 ![enum popup: bodies](https://github.com/vvshard/methods-enum/raw/master/doc/img/from_book__2res-popup_bodies.png)
 
 ---
-All examples as .rs files plus from_book-task_and_2_result.rs file with extension to book task and using `Unit` are located in the directory: <./tests/>
+All examples as .rs files plus from_book-task_and_2_result.rs file with extension to book task and using `Unit` are located in the directory: <https://github.com/vvshard/methods-enum/tree/master/tests>
 ___
