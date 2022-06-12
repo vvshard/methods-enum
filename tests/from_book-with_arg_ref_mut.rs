@@ -2,11 +2,11 @@
 fn main() {
     let mut post = blog::Post::new();
 
-    let mut ext_content = "ex content: ".to_string();
+    let mut ext_content = "external content: ".to_string();
 
     post.add_text("I ate a salad for lunch today", &mut ext_content);
     assert_eq!("", post.content());
-    assert_eq!("ex content: I ate a salad for lunch today", ext_content);
+    assert_eq!("external content: I ate a salad for lunch today", ext_content);
 
     post.request_review();
     assert_eq!("", post.content());
@@ -70,3 +70,4 @@ mod blog {
         }
     }
 }
+

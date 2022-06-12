@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 //! see description in [crate documentation](crate)
+#![doc(html_playground_url = "https://play.rust-lang.org/")]
 
 use core::str::FromStr;
 
@@ -80,24 +81,28 @@ impl Meth {
     fn args_parsing(&mut self, args_gr: SGroup) -> ParseStates {
         self.args = (args_gr.stream().to_string())
             .replace("& ", "&")
-            .replace(": ", ":")
+            .replace(" :", ":")
             .replace(" ,", ",")
             .replace(" <", "<")
             .replace(" >", ">");
         let mut args_it = args_gr.stream().into_iter();
         self.ts.extend([Group(args_gr)]);
-        let mut lg = 0;
-        let mut first = true;
-        self.params = String::new();
-        self.typs = String::new();
         self.gt_span = None;
         self.out = TokenStream::new();
+        let mut lg = 0;
+        let mut first = true;
+        let mut is_self = false;
+        self.params = String::new();
+        self.typs = String::new();
         loop {
             match args_it.next() {
                 Some(Punct(p)) if p.to_string() == "," && lg == 0 => {
                     match [args_it.next(), args_it.next()] {
                         [Some(Ident(id)), Some(Punct(p))] if p.to_string() == ":" => {
                             if first {
+                                if !is_self {
+                                    break Start;
+                                }
                                 first = false;
                             } else {
                                 self.params.push_str(", ");
@@ -114,6 +119,7 @@ impl Meth {
                     self.typs += &p.to_string();
                 }
                 Some(Ident(id)) if id.to_string() == "impl" => break Start,
+                Some(Ident(id)) if first && id.to_string() == "self" => is_self = true,
                 Some(Ident(id)) if !first && id.to_string() == "mut" => {
                     self.typs.push_str("mut ");
                 }
@@ -203,24 +209,25 @@ impl Meth {
     }
 }
 
-/// Based on method signatures, the following are formed enum with options from argument tuples
-///   and the bodies of those methods, with an argument handler method call from that enum.
+/// Based on the signatures of the methods of the `impl` block, the are formed:
+/// `enum` with options from the tuples of arguments, and
+/// `{}` bodies of these methods with a call to the argument handler method from this `enum`.
 ///
 /// This allows the handler method to control the behavior of the methods depending on the context.
 ///
 /// There are two syntax options:
 ///
-/// 1. For the case where methods returning a value have the same return type:
+/// 1- For the case where methods returning a value have the same return type:
 ///
-/// `#[methods_enum::gen(`*EnumName*`: `*handler_name*`)]`
+/// **`#[methods_enum::gen(`*EnumName*`: `*handler_name*`)]`**
 ///
 /// where:
 /// - *EnumName*: the name of the automatically generated enum.
 /// - *handler_name*: handler method name
 ///
-/// 2. In case of more than one meaningful return type:
+/// 2- In case of more than one meaningful return type:
 ///
-/// `#[methods_enum::gen(`*EnumName*`: `*handler_name*` = `*OutName*`)]`
+/// **`#[methods_enum::gen(`*EnumName*`: `*handler_name*` = `*OutName*`)]`**
 ///
 /// where:
 ///  - *OutName*: the name of the automatically generated enum with options from single tuples of return types.
@@ -357,7 +364,19 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                     enum_doc.push_str(&panic_s.replace('"', "\\\""));
                     match_ts.extend(TokenStream::from_str(&panic_s).unwrap());
                 } else {
-                    enum_doc.push_str(&m.default.to_string().replace('"', "\\\""));
+                    enum_doc.push_str(
+                        &(m.default.to_string())
+                            .replace('"', "\\\"")
+                            .replace(" {", " {\n            ")
+                            .replace(", _ =>", ",\n            _ =>")
+                            .replace(" !", "!")
+                            .replace(" (", "(")
+                            .replace("& ", "&")
+                            .replace(" :", ":")
+                            .replace(" ,", ",")
+                            .replace(" <", "<")
+                            .replace(" >", ">"),
+                    );
                     match_ts.extend(m.default);
                 }
                 enum_doc.push_str("\n    }");

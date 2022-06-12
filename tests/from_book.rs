@@ -31,7 +31,6 @@ mod blog {
         pub fn approve(&mut self);
         pub fn content(&mut self) -> &str;
 
-        #[rustfmt::skip]
         fn run_methods(&mut self, method: Meth) -> &str {
             match self.state {
                 State::Draft => match method {
