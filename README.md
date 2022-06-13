@@ -123,7 +123,7 @@ The macro duplicates the output for the compiler in the doc-comments. Therefore,
 
 ![enum popup: bodies](https://github.com/vvshard/methods-enum/raw/master/doc/img/from_book__enum-popup-bodies.png)
 
-[^ide]: IDE support tested on 'rust-analyzer for VS Code v0.3.1083' - everything works: highlighting, tooltips, transitions, renames.
+[^ide]: IDE support tested on 'rust-analyzer for VS Code v0.3.1083' - everything works: autocomplete, highlighting, tooltips, transitions, renames.
 
 Alternatively, the entire result of a macro can be output to the console at compile time by setting the session environment variable M_ENUM_DBG to a value other than "0". PowerShell example:
 ```PowerShell
