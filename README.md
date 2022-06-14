@@ -1,8 +1,11 @@
-# Attribute-like macro 'methods_enum::gen'
+# Macro 'methods_enum::gen'
+
+[![crates.io](https://img.shields.io/crates/v/methods-enum.svg)](https://crates.io/crates/methods-enum)
+[![Docs.rs](https://img.shields.io/docsrs/methods-enum)](https://docs.rs/methods-enum)
 
 Lightweight (no dependencies) attribute-like macro for "state" and "state machine" design patterns without dyn Trait (based on `enum`) with decoding output in doc-comments.
-
-The macro attribute is set before the direct `impl` block (no trait). Based on the method signatures of the `impl` block, it generates: `enum` with options from argument tuples, and generates the `{}` bodies of these methods with the call of the argument handler method from this `enum `.
+___
+The macro attribute is set before the direct `impl` block (no trait). Based on the method signatures of the `impl` block, it generates: `enum` with variants from argument tuples, and generates the `{}` bodies of these methods with the call of the argument handler method from this `enum `.
 
 This allows the handler method to control the behavior of the methods depending on the context.
 
@@ -21,7 +24,7 @@ where:
 **`#[methods_enum::gen(`*EnumName*`: ` *handler_name* ` = ` *OutName*`)]`**
 
 where:
- - *OutName*: the name of the automatically generated enum with options from single tuples of return types.
+ - *OutName*: the name of the automatically generated enum with variants from single tuples of return types.
 
 In the second case, you can also specify an expression for the default return value after the method signature.
 
@@ -48,7 +51,7 @@ The option on different types is not applicable in cases where a single interfac
 By setting in Cargo.toml:
 ```toml
 [dependencies]
-methods-enum = "0.1.3"
+methods-enum = "0.1.4"
 ```
 this can be solved, for example, like this: 
 
@@ -134,8 +137,9 @@ This is worth doing when the compiler messages are not clear and referring to th
 
 <h2 style="color: red"> Restrictions </h2>
 
-- Macro does not work on generic methods (including lifetime generics). As a general rule, methods with <...> before the argument list, with `where` before the body, or `impl` in the argument type declaration will be silently ignored for inclusion in `enum`.
-- Macro ignores also methods with a `mut` prefix in front of a method argument name (except  `self`): move such an argument to a mut variable in the body of the handler method.
+- The macro does not work on generic methods (including lifetime generics). As a general rule, methods with <...> before the argument list, with `where` before the body, or `impl` in the argument type declaration will be silently ignored for inclusion in `enum`.
+- The macro will ignore signatures with destructured arguments.
+- The macro ignores also methods with a `mut` prefix in front of a method argument name (except  `self`): move such an argument to a mut variable in the body of the handler method.
 - The `self` form of all methods of the same `enum` must be the same and match the `self` form of the handler method. As a rule, it is either `&mut self` everywhere or `self` in methods + `mut self` in the handler method. However, it is allowed to group method signatures into multiple `impl` blocks with different `enum` and handler methods. See example below.
 
 ## Details of the macro and use cases
@@ -224,6 +228,8 @@ Here fn run_move and/or fn run_methods can also be placed at the end of the firs
 
 Associated functions (for the syntax without *OutName* also and regular methods) can be in the `impl` block and before the handler method, interspersed with method signatures, but this worsens readability.
 
+The best option for readability is to separate the signatures for `enum` into a separate `impl` block, ending with a handler method.
+
 Methods arguments with &mut types work the same way. For example, to extend the blog::Post task to:
 ```rust 
 fn main() {
@@ -272,17 +278,11 @@ mod blog {
                         ""
                     }
 // . . .                    
-#                     Meth::request_review() => {
-#                         self.state = State::PendingReview;
-#                         ""
-#                     }
+#                     Meth::request_review() => { self.state = State::PendingReview; "" }
 #                     _ => "",
 #                 },
 #                 State::PendingReview => match method {
-#                     Meth::approve() => {
-#                         self.state = State::Published;
-#                         ""
-#                     }
+#                     Meth::approve() => { self.state = State::Published; "" }
 #                     _ => "",
 #                 },
 #                 State::Published => match method {
@@ -307,7 +307,7 @@ mod blog {
 **`#[methods_enum::gen(`*EnumName*`: ` *handler_name* ` = ` *OutName*`)]`**
 
 where:
- - *OutName*: the name of the automatically generated enum with options from single tuples of return types.
+ - *OutName*: the name of the automatically generated enum with variants from single tuples of return types.
 
 This allows you not to be limited to one meaningful return type of methods, but obliges the handler method to wrap all return values in `enum` *OutName*. The unwrapping will be done in automatically generated method bodies.
 
@@ -317,7 +317,7 @@ In the generated method bodies, a variant of `enum` *OutName* that matches the t
 
 It is possible to replace the type mismatch panic with a default expression by specifying it after the method signature in braces.
 
-As an example, let's make all methods except `content()` of our `blog::Post` output a Result<&State, String> type, with `Ok()` reflecting the `Post` state after the method and `Err()` - method impossibility message:
+As an example, let's make all methods except `content()` of our `blog::Post` output a `Result<&State, String>` type, with `Ok()` reflecting the `Post` state after the method and `Err()` - method impossibility message:
 ```rust
 use blog::{Post, State};
 
@@ -415,7 +415,7 @@ The `enum Out` declaration and the generated method bodies can be seen in the to
 
 As you might guess from the last screenshot, the default value expression can use a return from a handler method in a variable with a name derived from *OutName* by converting it to lower case and preceding it with an underscore.
 
-For example, if in the `content()` method we need to return not &str, but Result<&str, String>, then in the expression for the default value `content()` we should put the Err conversion from the Result<&State, String> type to the type Result<&str, String>:
+For example, if in the `content()` method we need to return not `&str`, but `Result<&str, String>`, then in the expression for the default value `content()` we should put the Err conversion from the `Result<&State, String>` type to the type `Result<&str, String>`:
 ```rust
 use blog::{Post, State};
 
@@ -523,6 +523,10 @@ mod blog {
 
 ![enum popup: bodies](https://github.com/vvshard/methods-enum/raw/master/doc/img/from_book__2res-popup_bodies.png)
 
----
-All examples as .rs files plus from_book-task_and_2_result.rs file with extension to book task and using `Unit` are located in the directory: <https://github.com/vvshard/methods-enum/tree/master/tests>
 ___
+All examples as .rs files plus from_book-task_and_2_result.rs file with extension to book task and using `Unit` are located in the directory: <https://github.com/vvshard/methods-enum/tree/master/tests>
+
+# License
+This software is released under the MIT or Apache-2.0 license of your choice.
+___
+

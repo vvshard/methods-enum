@@ -1,5 +1,5 @@
 #![doc = include_str!("../README.md")]
-//! see description in [crate documentation](crate)
+//! [crate documentation](crate)
 #![doc(html_playground_url = "https://play.rust-lang.org/")]
 
 use core::str::FromStr;
@@ -102,7 +102,7 @@ impl Meth {
                             self.params += &id.to_string();
                         }
                         [Some(_tt), _] => break Start,
-                        [None, _] => break Minus,
+                        [None, _] => break if is_self { Minus } else { Start },
                     }
                 }
                 Some(Punct(p)) if "<>".contains(&p.to_string()) => {
@@ -115,7 +115,7 @@ impl Meth {
                     self.typs.push_str("mut ");
                 }
                 Some(tt) if !first => self.typs.push_str(&tt.to_string()),
-                None => break Minus,
+                None => break if is_self { Minus } else { Start },
                 _ => (),
             }
         };
@@ -209,10 +209,10 @@ impl Meth {
 
 fn ts_to_doc(ts: &TokenStream) -> String {
     let s = ts.to_string().replace("& ", "&").replace(":: ", "::");
-    let p = &[':', ',', '<', '>', '(', '!'];
-    let v: Vec<_> = s.match_indices(p).map(|t| t.0).collect();
-    ([0].iter().chain(v.iter()))
-        .zip(v.iter().chain(&[s.len()]))
+    let p = &['!', '(', ',', ':', '<', '>'];
+    let inds: Vec<_> = s.match_indices(p).map(|t| t.0).collect();
+    ([0].iter().chain(inds.iter()))
+        .zip(inds.iter().chain(&[s.len()]))
         .map(|(&a, &b)| (&s[a..b]).trim_end())
         .collect()
 }
@@ -242,7 +242,7 @@ fn ts_to_doc(ts: &TokenStream) -> String {
 ///
 /// In this case, you can also specify default return value expressions.
 ///
-/// See the [module documentation](crate) for details.
+/// See the [crate documentation](crate) for details.
 #[proc_macro_attribute]
 pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     // std::fs::write("target/debug/item_ts.txt", format!("{}\n\n{0:#?}", item_ts)).unwrap();
@@ -294,8 +294,8 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             };
             enum_ts.extend(TokenStream::from_str(&format!("({typs}), ")));
             enum_doc.push_str(&format!("\n    {ident}({typs}), "));
-            if let Some(gt_span) = m.out_span {
-                outs.push((ident.to_string(), ts_to_doc(&m.out), gt_span));
+            if let Some(out_span) = m.out_span {
+                outs.push((ident.to_string(), ts_to_doc(&m.out), out_span));
             }
         }
     }
