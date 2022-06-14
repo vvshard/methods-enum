@@ -67,34 +67,25 @@ use ParseStates::*;
 #[derive(Default)]
 struct Meth {
     ident: Option<SIdent>,
-    ts: TokenStream,
+    prev_ts: TokenStream,
     pub_s: &'static str,
-    args: String,
+    args: TokenStream,
     params: String,
     typs: String,
-    gt_span: Option<Span>,
+    out_span: Option<Span>,
     out: TokenStream,
     default: TokenStream,
 }
 impl Meth {
     /// on successful parsing of the arguments returns `Minus`, otherwise - `Start`
     fn args_parsing(&mut self, args_gr: SGroup) -> ParseStates {
-        self.args = (args_gr.stream().to_string())
-            .replace("& ", "&")
-            .replace(" :", ":")
-            .replace(" ,", ",")
-            .replace(" <", "<")
-            .replace(" >", ">");
         let mut args_it = args_gr.stream().into_iter();
-        self.ts.extend([Group(args_gr)]);
-        self.gt_span = None;
-        self.out = TokenStream::new();
         let mut lg = 0;
         let mut first = true;
         let mut is_self = false;
         self.params = String::new();
         self.typs = String::new();
-        loop {
+        let st = loop {
             match args_it.next() {
                 Some(Punct(p)) if p.to_string() == "," && lg == 0 => {
                     match [args_it.next(), args_it.next()] {
@@ -127,7 +118,14 @@ impl Meth {
                 None => break Minus,
                 _ => (),
             }
+        };
+        if let Minus = st {
+            self.args = args_gr.stream();
+            self.out_span = None;
+            self.out = TokenStream::new();
         }
+        self.prev_ts.extend([Group(args_gr)]);
+        st
     }
 
     fn filling_vec(iit: &mut IntoIter, attr: &Attr) -> Vec<Meth> {
@@ -136,16 +134,16 @@ impl Meth {
             match iit.try_fold((Start, Meth::default()), |(state, mut m), tt| {
                 match (state, tt) {
                     (Start, Ident(id)) if id.to_string() == "pub" => {
-                        m.ts.extend([Ident(id)]);
+                        m.prev_ts.extend([Ident(id)]);
                         Ok((Pub, m))
                     }
                     (st @ (Start | Pub), Ident(id)) if id.to_string() == "fn" => {
                         m.pub_s = if let Start = st { "" } else { "pub " };
-                        m.ts.extend([Ident(id)]);
+                        m.prev_ts.extend([Ident(id)]);
                         Ok((Name, m))
                     }
                     (Name, Ident(id)) => {
-                        m.ts.extend([Ident(id.clone())]);
+                        m.prev_ts.extend([Ident(id.clone())]);
                         if id.to_string() == attr.run_method {
                             Err((Stop, m))
                         } else {
@@ -157,29 +155,29 @@ impl Meth {
                         Ok((m.args_parsing(gr), m))
                     }
                     (Minus, Punct(p)) if p.to_string() == "-" => {
-                        m.ts.extend([Punct(p)]);
+                        m.prev_ts.extend([Punct(p)]);
                         Ok((Gt, m))
                     }
                     (Gt, Punct(p)) if p.to_string() == ">" => {
-                        m.gt_span = Some(p.span());
-                        m.ts.extend([Punct(p)]);
+                        m.out_span = Some(p.span());
+                        m.prev_ts.extend([Punct(p)]);
                         Ok((Out, m))
                     }
                     (Minus, Group(gr)) if gr.delimiter() == Delimiter::Brace => {
                         // skip fn with body
-                        m.ts.extend([Group(gr)]);
+                        m.prev_ts.extend([Group(gr)]);
                         Ok((Start, m))
                     }
                     (Out, Group(gr))
                         if gr.delimiter() == Delimiter::Brace && attr.out_ident.is_none() =>
                     {
                         // skip fn with body
-                        m.ts.extend([Group(gr)]);
+                        m.prev_ts.extend([Group(gr)]);
                         Ok((Start, m))
                     }
                     (Out, Ident(id)) if id.to_string() == "where" => {
                         // skip the generalized fn
-                        m.ts.extend([Ident(id)]);
+                        m.prev_ts.extend([Ident(id)]);
                         Ok((Start, m))
                     }
                     (Minus | Out, Punct(p)) if p.to_string() == ";" => Err((state, m)),
@@ -189,11 +187,11 @@ impl Meth {
                     }
                     (Out, tt) => {
                         m.out.extend(TokenStream::from(tt.clone()));
-                        m.ts.extend([tt]);
+                        m.prev_ts.extend([tt]);
                         Ok((state, m))
                     }
                     (_, tt) => {
-                        m.ts.extend([tt]);
+                        m.prev_ts.extend([tt]);
                         Ok((Start, m))
                     }
                 }
@@ -207,6 +205,16 @@ impl Meth {
             };
         }
     }
+}
+
+fn ts_to_doc(ts: &TokenStream) -> String {
+    let s = ts.to_string().replace("& ", "&").replace(":: ", "::");
+    let p = &[':', ',', '<', '>', '(', '!'];
+    let v: Vec<_> = s.match_indices(p).map(|t| t.0).collect();
+    ([0].iter().chain(v.iter()))
+        .zip(v.iter().chain(&[s.len()]))
+        .map(|(&a, &b)| (&s[a..b]).trim_end())
+        .collect()
 }
 
 /// Based on the signatures of the methods of the `impl` block, the are formed:
@@ -286,16 +294,8 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             };
             enum_ts.extend(TokenStream::from_str(&format!("({typs}), ")));
             enum_doc.push_str(&format!("\n    {ident}({typs}), "));
-            if let Some(gt_span) = m.gt_span {
-                outs.push((
-                    ident.to_string(),
-                    (m.out.to_string())
-                        .replace("& ", "&")
-                        .replace(" ,", ",")
-                        .replace(" <", "<")
-                        .replace(" >", ">"),
-                    gt_span,
-                ));
+            if let Some(gt_span) = m.out_span {
+                outs.push((ident.to_string(), ts_to_doc(&m.out), gt_span));
             }
         }
     }
@@ -309,9 +309,9 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     let self_run_enum = format!("self.{}({}::", attr.run_method, attr.enum_name);
     let mut metods_ts = TokenStream::new();
     for m in methods {
-        metods_ts.extend(m.ts);
+        metods_ts.extend(m.prev_ts);
         if let Some(ident) = m.ident {
-            enum_doc.push_str(&format!("\n{}fn {ident}({})", m.pub_s, m.args));
+            enum_doc.push_str(&format!("\n{}fn {ident}({})", m.pub_s, ts_to_doc(&m.args)));
             let mut body_ts = TokenStream::new();
             let out = if m.out.is_empty() {
                 enum_doc.push_str("{");
@@ -365,17 +365,10 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                     match_ts.extend(TokenStream::from_str(&panic_s).unwrap());
                 } else {
                     enum_doc.push_str(
-                        &(m.default.to_string())
+                        &ts_to_doc(&m.default)
                             .replace('"', "\\\"")
                             .replace(" {", " {\n            ")
-                            .replace(", _ =>", ",\n            _ =>")
-                            .replace(" !", "!")
-                            .replace(" (", "(")
-                            .replace("& ", "&")
-                            .replace(" :", ":")
-                            .replace(" ,", ",")
-                            .replace(" <", "<")
-                            .replace(" >", ">"),
+                            .replace(", _ =>", ",\n            _ =>"),
                     );
                     match_ts.extend(m.default);
                 }
@@ -389,16 +382,16 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     metods_ts.extend(block_it);
     item_ts.extend([Group(SGroup::new(Delimiter::Brace, metods_ts))]);
 
-    let mut result_ts = TokenStream::from_str(&format!(
+    let mut res_ts = TokenStream::from_str(&format!(
         "{head_enum}{}{refs}{{{enum_doc}\n```\"] enum ",
         attr.enum_ident.as_ref().unwrap()
     ))
     .unwrap();
-    result_ts.extend([Ident(attr.enum_ident.unwrap())]);
-    result_ts.extend(TokenStream::from_str(refs).unwrap());
-    result_ts.extend([Group(proc_macro::Group::new(Delimiter::Brace, enum_ts))]);
+    res_ts.extend([Ident(attr.enum_ident.unwrap())]);
+    res_ts.extend(TokenStream::from_str(refs).unwrap());
+    res_ts.extend([Group(proc_macro::Group::new(Delimiter::Brace, enum_ts))]);
 
-    result_ts.extend(item_ts);
+    res_ts.extend(item_ts);
 
     if let Some(out_ident) = &attr.out_ident {
         enum_ts = TokenStream::from_str("Unit, ").unwrap();
@@ -415,23 +408,23 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             enum_ts.extend(TokenStream::from_str(&format!("({typs}), ")));
             enum_doc.push_str(&format!("\n    {name}({typs}), "));
         }
-        result_ts.extend(
+        res_ts.extend(
             TokenStream::from_str(&format!(
                 "{head_enum}{out_ident}{refs}{{{enum_doc}\n}}\n```\"] enum "
             ))
             .unwrap(),
         );
-        result_ts.extend([Ident(out_ident.clone())]);
-        result_ts.extend(TokenStream::from_str(refs).unwrap());
-        result_ts.extend([Group(proc_macro::Group::new(Delimiter::Brace, enum_ts))]);
+        res_ts.extend([Ident(out_ident.clone())]);
+        res_ts.extend(TokenStream::from_str(refs).unwrap());
+        res_ts.extend([Group(proc_macro::Group::new(Delimiter::Brace, enum_ts))]);
     }
 
     if std::env::var("M_ENUM_DBG").map_or(false, |v| &v != "0") {
         println!(
             "\nM_ENUM_DBG - output to compiler input for enum {}:\n{}\n",
-            attr.enum_name, result_ts
+            attr.enum_name, res_ts
         );
     }
 
-    result_ts
+    res_ts
 }
