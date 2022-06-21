@@ -51,7 +51,7 @@ The option on different types is not applicable in cases where a single interfac
 By setting in Cargo.toml:
 ```toml
 [dependencies]
-methods-enum = "0.1.4"
+methods-enum = "0.1.5"
 ```
 this can be solved, for example, like this: 
 ```rust
