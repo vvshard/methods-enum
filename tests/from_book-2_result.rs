@@ -4,14 +4,8 @@ use blog::{Post, State};
 fn main() {
     let mut post = Post::new();
 
-    assert_eq!(
-        post.add_text("I ate a salad for lunch today"),
-        Ok(&State::Draft)
-    );
-    assert_eq!(
-        post.content(),
-        Err("For State::Draft method 'content' is not possible".to_string())
-    );
+    assert_eq!(post.add_text("I ate a salad for lunch today"), Ok(&State::Draft));
+
     assert_eq!(
         post.approve(),
         Err("For State::Draft method 'approve' is not possible".to_string())
@@ -90,10 +84,7 @@ mod blog {
         }
 
         pub fn new() -> Post {
-            Post {
-                state: State::Draft,
-                content: String::new(),
-            }
+            Post { state: State::Draft, content: String::new() }
         }
     }
 }

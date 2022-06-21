@@ -54,9 +54,6 @@ By setting in Cargo.toml:
 methods-enum = "0.1.4"
 ```
 this can be solved, for example, like this: 
-
-
-
 ```rust
 # fn main() {
 #     let mut post = blog::Post::new();
@@ -324,11 +321,8 @@ use blog::{Post, State};
 fn main() {
     let mut post = Post::new();
 
-    assert_eq!(
-        post.add_text("I ate a salad for lunch today"),
-        Ok(&State::Draft)
-    );
-    assert_eq!(post.content(), "");
+    assert_eq!( post.add_text("I ate a salad for lunch today"), Ok(&State::Draft) );
+
     assert_eq!(
         post.approve(),
         Err("For State::Draft method 'approve' is not possible".to_string())
@@ -423,14 +417,8 @@ fn main() {
 // . . .
 #    let mut post = Post::new();
 #
-#    assert_eq!(
-#        post.add_text("I ate a salad for lunch today"),
-#        Ok(&State::Draft)
-#    );
-#    assert_eq!(
-#        post.content(),
-#        Err("For State::Draft method 'content' is not possible".to_string())
-#    );
+#    assert_eq!( post.add_text("I ate a salad for lunch today"), Ok(&State::Draft) );
+#
 #    assert_eq!(
 #        post.approve(),
 #        Err("For State::Draft method 'approve' is not possible".to_string())
@@ -527,6 +515,6 @@ ___
 All examples as .rs files plus from_book-task_and_2_result.rs file with extension to book task and using `Unit` are located in the directory: <https://github.com/vvshard/methods-enum/tree/master/tests>
 
 # License
-This software is released under the MIT or Apache-2.0 license of your choice.
+MIT or Apache-2.0 license of your choice.
 ___
 

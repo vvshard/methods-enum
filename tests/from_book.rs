@@ -34,12 +34,21 @@ mod blog {
         fn run_methods(&mut self, method: Meth) -> &str {
             match self.state {
                 State::Draft => match method {
-                    Meth::add_text(text) => { self.content.push_str(text); "" }
-                    Meth::request_review() => { self.state = State::PendingReview; "" }
+                    Meth::add_text(text) => {
+                        self.content.push_str(text);
+                        ""
+                    }
+                    Meth::request_review() => {
+                        self.state = State::PendingReview;
+                        ""
+                    }
                     _ => "",
                 },
                 State::PendingReview => match method {
-                    Meth::approve() => { self.state = State::Published; "" }
+                    Meth::approve() => {
+                        self.state = State::Published;
+                        ""
+                    }
                     _ => "",
                 },
                 State::Published => match method {
@@ -50,10 +59,7 @@ mod blog {
         }
 
         pub fn new() -> Post {
-            Post {
-                state: State::Draft,
-                content: String::new(),
-            }
+            Post { state: State::Draft, content: String::new() }
         }
     }
 }

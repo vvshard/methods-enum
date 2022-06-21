@@ -5,10 +5,7 @@ fn main() {
     post.add_text("I ate a salad for lunch today");
     assert_eq!("", post.content());
 
-    assert_eq!(
-        "I ate a salad for lunch today",
-        post.request_review().approve().content()
-    );
+    assert_eq!("I ate a salad for lunch today", post.request_review().approve().content());
 }
 
 mod blog {
@@ -34,11 +31,13 @@ mod blog {
         pub fn add_text(&mut self, text: &str);
         pub fn content(&mut self) -> &str;
 
-        #[rustfmt::skip]
         fn run_methods(&mut self, method: Meth) -> &str {
             match self.state {
                 State::Draft => match method {
-                    Meth::add_text(text) => { self.content.push_str(text); "" }
+                    Meth::add_text(text) => {
+                        self.content.push_str(text);
+                        ""
+                    }
                     _ => "",
                 },
                 State::PendingReview => "",
@@ -49,15 +48,20 @@ mod blog {
             }
         }
 
-        #[rustfmt::skip]
         fn run_move(mut self, method: Move) -> Post {
             match self.state {
                 State::Draft => match method {
-                    Move::request_review() => { self.state = State::PendingReview; self }
+                    Move::request_review() => {
+                        self.state = State::PendingReview;
+                        self
+                    }
                     _ => self,
                 },
                 State::PendingReview => match method {
-                    Move::approve() => { self.state = State::Published; self }
+                    Move::approve() => {
+                        self.state = State::Published;
+                        self
+                    }
                     _ => self,
                 },
                 State::Published => self,
@@ -65,10 +69,7 @@ mod blog {
         }
 
         pub fn new() -> Post {
-            Post {
-                state: State::Draft,
-                content: String::new(),
-            }
+            Post { state: State::Draft, content: String::new() }
         }
     }
 }

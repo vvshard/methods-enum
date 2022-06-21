@@ -1,0 +1,3 @@
+# (fn_call_width, attr_fn_like_width, struct_lit_width, struct_variant_width, array_width, chain_width, single_line_if_else_max_width)
+#     = max_width (max_width default = 100) https://rust-lang.github.io/rustfmt/#use_small_heuristics
+use_small_heuristics = "Max"

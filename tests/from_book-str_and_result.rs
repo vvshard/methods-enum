@@ -4,11 +4,8 @@ use blog::{Post, State};
 fn main() {
     let mut post = Post::new();
 
-    assert_eq!(
-        post.add_text("I ate a salad for lunch today"),
-        Ok(&State::Draft)
-    );
-    assert_eq!(post.content(), "");
+    assert_eq!(post.add_text("I ate a salad for lunch today"), Ok(&State::Draft));
+
     assert_eq!(
         post.approve(),
         Err("For State::Draft method 'approve' is not possible".to_string())
@@ -40,7 +37,9 @@ mod blog {
         pub fn add_text(&mut self, text: &str) -> Result<&State, String>;
         pub fn request_review(&mut self) -> Result<&State, String>;
         pub fn approve(&mut self) -> Result<&State, String>;
-        pub fn content(&mut self) -> &str { "" }
+        pub fn content(&mut self) -> &str {
+            ""
+        }
 
         fn run_methods(&mut self, method: Meth) -> Out {
             match self.state {
@@ -79,10 +78,7 @@ mod blog {
         }
 
         pub fn new() -> Post {
-            Post {
-                state: State::Draft,
-                content: String::new(),
-            }
+            Post { state: State::Draft, content: String::new() }
         }
     }
 }
