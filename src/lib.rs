@@ -328,9 +328,10 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                 } else {
                     enum_doc.push_str(
                         &ts_to_doc(&m.default)
-                            .replace('"', "\\\"")
                             .replace(" {", " {\n            ")
-                            .replace(", _ =>", ",\n            _ =>"),
+                            .replace(", _ =>", ",\n            _ =>")
+                            .escape_debug()
+                            .collect::<String>(),
                     );
                     match_ts.extend(m.default);
                 }
