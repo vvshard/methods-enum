@@ -35,17 +35,16 @@ mod blog {
         content: String,
     }
 
-    #[methods_enum::gen(Meth: run_methods = Out)]
+    #[methods_enum::gen(Meth: run_methods, Out)]
     impl Post {
         pub fn add_text(&mut self, text: &str) -> Result<&State, String>;
         pub fn request_review(&mut self) -> Result<&State, String>;
         pub fn approve(&mut self) -> Result<&State, String>;
-        pub fn content(&mut self) -> Result<&str, String> {
-            match _out {
-                Out::request_review(Err(e)) => Err(e),
-                _ => panic!("type mismatch in content() metod"), // never
-            }
-        }
+        #[rustfmt::skip]
+        pub fn content(&mut self) -> Result<&str, String> { match _out {
+                    Out::request_review(Err(e)) => Err(e),   // default value
+                    _ => panic!("Type mismatch in content() metod"), // never
+                }}
 
         fn run_methods(&mut self, method: Meth) -> Out {
             match self.state {

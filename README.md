@@ -1,32 +1,21 @@
-# Macro 'methods_enum::gen'
+# methods_enum::gen(...) macro
 
-[![crates.io](https://img.shields.io/crates/v/methods-enum.svg)](https://crates.io/crates/methods-enum)
-[![Docs.rs](https://img.shields.io/docsrs/methods-enum)](https://docs.rs/methods-enum)
+[![crates.io](https://img.shields.io/crates/v/methods-enum.svg)](https://crates.io/crates/methods-enum) [![Docs.rs](https://img.shields.io/docsrs/methods-enum)](https://docs.rs/methods-enum)
 
-Lightweight (no dependencies) attribute-like macro for "state" and "state machine" design patterns without dyn Trait (based on `enum`) with decoding output in doc-comments.
+Lightweight (no dependencies) attribute-like macro for the "state" and "state machine" design patterns, without dyn Trait (based on an enum), displaying its output in doc comments.
 ___
-The macro attribute is set before the direct `impl` block (no trait). Based on the method signatures of the `impl` block, it generates: `enum` with variants from argument tuples, and generates the `{}` bodies of these methods with the call of the argument handler method from this `enum `.
-
+The macro attribute is set before the direct `impl` block (no trait). Based on the method signatures of the `impl` block, it generates: `enum` with parameters from argument tuples and generates `{}` bodies of these methods with calling the argument handler method from this `enum`.  
 This allows the handler method to control the behavior of the methods depending on the context.
 
-There are two syntax options:
-
-1. For the case where methods returning a value have the same return type:
-
-**`#[methods_enum::gen(`*EnumName*`: ` *handler_name*`)]`**
+#### Macro call syntax
+**`#[methods_enum::gen(`*EnumName* `, ` | `: ` *handler_name* ( `, ` | ` = ` *OutName* `!`<sup>?</sup> )<sup>?</sup> `)]`**
 
 where:
-- *EnumName*: the name of the automatically generated enum.
-- *handler_name*: handler method name
+- ***EnumName***: The name of the automatically generated enum.
+- ***handler_name***: Handler method name
+- ***OutName*** (in case of more than one return type and/or to specify a default return values): The name of an automatically generated enum with variants from the return types. See [below for details on the *OutName* option.](#OutName)
 
-2. In case of more than one meaningful return type:
-
-**`#[methods_enum::gen(`*EnumName*`: ` *handler_name* ` = ` *OutName*`)]`**
-
-where:
- - *OutName*: the name of the automatically generated enum with variants from single tuples of return types.
-
-In the second case, you can also specify an expression for the default return value after the method signature.
+ Replacing the delimiter **`, `** after *EnumName* with **`: `** or before *OutName* with **` = `** will automatically add the `#[derive(Debug)]` attribute to the corresponding enum.
 
 ## Usage example 
 
@@ -51,7 +40,7 @@ The option on different types is not applicable in cases where a single interfac
 By setting in Cargo.toml:
 ```toml
 [dependencies]
-methods-enum = "0.1.5"
+methods-enum = "0.2.0"
 ```
 this can be solved, for example, like this: 
 ```rust
@@ -80,7 +69,7 @@ mod blog {
         content: String,
     }
 
-    #[methods_enum::gen(Meth: run_methods)]
+    #[methods_enum::gen(Meth, run_methods)]
     impl Post {
         pub fn add_text(&mut self, text: &str);
         pub fn request_review(&mut self);
@@ -90,12 +79,21 @@ mod blog {
         fn run_methods(&mut self, method: Meth) -> &str {
             match self.state {
                 State::Draft => match method {
-                    Meth::add_text(text) => { self.content.push_str(text); "" }
-                    Meth::request_review() => { self.state = State::PendingReview; "" }
+                    Meth::add_text(text) => {
+                        self.content.push_str(text);
+                        ""
+                    }
+                    Meth::request_review() => {
+                        self.state = State::PendingReview;
+                        ""
+                    }
                     _ => "",
                 },
                 State::PendingReview => match method {
-                    Meth::approve() => { self.state = State::Published; "" }
+                    Meth::approve() => {
+                        self.state = State::Published;
+                        ""
+                    }
                     _ => "",
                 },
                 State::Published => match method {
@@ -106,10 +104,7 @@ mod blog {
         }
 
         pub fn new() -> Post {
-            Post {
-                state: State::Draft,
-                content: String::new(),
-            }
+            Post { state: State::Draft, content: String::new() }
         }
     }
 }
@@ -119,9 +114,9 @@ In the handler method (in this case, `run_methods`), simply write for each state
 
 The macro duplicates the output for the compiler in the doc-comments. Therefore, in the IDE[^ide], you can always see the declaration of the generated `enum` and the generated method bodies, in the popup hint above the enum name:
 
-![enum popup hint](https://github.com/vvshard/methods-enum/raw/master/doc/img/from_book__enum-popup.png)
+![enum popup hint](https://github.com/vvshard/methods-enum/raw/master/doc/img_0_2/UsageExample_1.png)
 
-![enum popup: bodies](https://github.com/vvshard/methods-enum/raw/master/doc/img/from_book__enum-popup-bodies.png)
+![enum popup: bodies](https://github.com/vvshard/methods-enum/raw/master/doc/img_0_2/UsageExample_2.png)
 
 [^ide]: IDE support tested on 'rust-analyzer for VS Code v0.3.1083' - everything works: autocomplete, highlighting, tooltips, transitions, renames.
 
@@ -132,7 +127,7 @@ PS > cargo build
 ```
 This is worth doing when the compiler messages are not clear and referring to the macro line , so that for debugging, replace the impl block along with the attribute with the output of the macro.
 
-<h2 style="color: red"> Restrictions </h2>
+## Restrictions
 
 - The macro does not work on generic methods (including lifetime generics). As a general rule, methods with <...> before the argument list, with `where` before the body, or `impl` in the argument type declaration will be silently ignored for inclusion in `enum`.
 - The macro will ignore signatures with destructured arguments.
@@ -142,6 +137,8 @@ This is worth doing when the compiler messages are not clear and referring to th
 ## Details of the macro and use cases
 
 The macro reads only its impl block and only up to the name of the handler method. From which it follows that all method signatures for enum must be located before the handler method or in a separate from it impl block.
+
+The handler method always has two arguments: `self` in the form corresponding to the method signatures, and the `enum` declared in the macro (*EnumName*).
 
 The following example demonstrates the use of methods with `self` in the form of a move, in a separate `impl` block from their handler, which also contains the signatures of the `&mut self` methods and both handlers.
 
@@ -153,10 +150,7 @@ fn main() {
     post.add_text("I ate a salad for lunch today");
     assert_eq!("", post.content());
 
-    assert_eq!(
-        "I ate a salad for lunch today",
-        post.request_review().approve().content()
-    );
+    assert_eq!("I ate a salad for lunch today", post.request_review().approve().content());
 }
 
 // In this case, the solution might be:
@@ -173,13 +167,13 @@ mod blog {
         content: String,
     }
 
-    #[methods_enum::gen(Move: run_move)]
+    #[methods_enum::gen(Move, run_move)]
     impl Post {
         pub fn request_review(self) -> Post;
         pub fn approve(self) -> Post;
     }
 
-    #[methods_enum::gen(Meth: run_methods)]
+    #[methods_enum::gen(Meth, run_methods)]
     impl Post {
         pub fn add_text(&mut self, text: &str);
         pub fn content(&mut self) -> &str;
@@ -187,7 +181,10 @@ mod blog {
         fn run_methods(&mut self, method: Meth) -> &str {
             match self.state {
                 State::Draft => match method {
-                    Meth::add_text(text) => { self.content.push_str(text); "" }
+                    Meth::add_text(text) => {
+                        self.content.push_str(text);
+                        ""
+                    }
                     _ => "",
                 },
                 State::PendingReview => "",
@@ -201,11 +198,17 @@ mod blog {
         fn run_move(mut self, method: Move) -> Post {
             match self.state {
                 State::Draft => match method {
-                    Move::request_review() => { self.state = State::PendingReview; self }
+                    Move::request_review() => {
+                        self.state = State::PendingReview;
+                        self
+                    }
                     _ => self,
                 },
                 State::PendingReview => match method {
-                    Move::approve() => { self.state = State::Published; self }
+                    Move::approve() => {
+                        self.state = State::Published;
+                        self
+                    }
                     _ => self,
                 },
                 State::Published => self,
@@ -213,10 +216,7 @@ mod blog {
         }
 
         pub fn new() -> Post {
-            Post {
-                state: State::Draft,
-                content: String::new(),
-            }
+            Post { state: State::Draft, content: String::new() }
         }
     }
 }
@@ -232,11 +232,11 @@ Methods arguments with &mut types work the same way. For example, to extend the 
 fn main() {
     let mut post = blog::Post::new();
 
-    let mut ext_content = "external content: ".to_string();
+    let mut ext_content = "External content: ".to_string();
 
     post.add_text("I ate a salad for lunch today", &mut ext_content);
     assert_eq!("", post.content());
-    assert_eq!("external content: I ate a salad for lunch today", ext_content);
+    assert_eq!("External content: I ate a salad for lunch today", ext_content);
 
     post.request_review();
     post.approve();
@@ -247,19 +247,19 @@ fn main() {
 
 mod blog {
 // . . .                    
-#    enum State {
-#        Draft,
-#        PendingReview,
-#        Published,
-#    }
+#   enum State {
+#       Draft,
+#       PendingReview,
+#       Published,
+#   }
 #
-#    pub struct Post {
-#        state: State,
-#        content: String,
-#    }
-# 
+#   pub struct Post {
+#       state: State,
+#       content: String,
+#   }
+#
 // . . .                    
-    #[methods_enum::gen(Meth: run_methods)]
+    #[methods_enum::gen(Meth, run_methods)]
     impl Post {
         pub fn add_text(&mut self, text: &str, ex_content: &mut String);
         pub fn request_review(&mut self);
@@ -275,46 +275,53 @@ mod blog {
                         ""
                     }
 // . . .                    
-#                     Meth::request_review() => { self.state = State::PendingReview; "" }
-#                     _ => "",
-#                 },
-#                 State::PendingReview => match method {
-#                     Meth::approve() => { self.state = State::Published; "" }
-#                     _ => "",
-#                 },
-#                 State::Published => match method {
-#                     Meth::content() => &self.content,
-#                     _ => "",
-#                 },
-#             }
-#         }
-# 
-#         pub fn new() -> Post {
-#             Post {
-#                 state: State::Draft,
-#                 content: String::new(),
-#             }
-#         }
-#     }
+#                   Meth::request_review() => {
+#                       self.state = State::PendingReview;
+#                       ""
+#                   }
+#                   _ => "",
+#               },
+#               State::PendingReview => match method {
+#                   Meth::approve() => {
+#                       self.state = State::Published;
+#                       ""
+#                   }
+#                   _ => "",
+#               },
+#               State::Published => match method {
+#                   Meth::content() => &self.content,
+#                   _ => "",
+#               },
+#           }
+#       }
+#
+#       pub fn new() -> Post {
+#           Post { state: State::Draft, content: String::new() }
+#       }
+#   }
 // . . .    
 }
 ```
-## 2nd syntax option: with *OutName*
+## Syntax variant with <em id="OutName">OutName</em>
 
-**`#[methods_enum::gen(`*EnumName*`: ` *handler_name* ` = ` *OutName*`)]`**
+**`#[methods_enum::gen(`*EnumName* `, ` | `: ` *handler_name* `, ` | ` = ` *OutName* `!`<sup>?</sup> `)]`**
 
 where:
- - *OutName*: the name of the automatically generated enum with variants from single tuples of return types.
+- ***OutName***: The name of an automatically generated enum with variants from the return types.
 
-This allows you not to be limited to one meaningful return type of methods, but obliges the handler method to wrap all return values in `enum` *OutName*. The unwrapping will be done in automatically generated method bodies.
+Replacing the delimiter **`, `** before *OutName* with **` = `** will automatically add the `#[derive(Debug)]` attribute to the `enum`.
 
-`enum` *OutName* includes only variants with return types named like methods, and one variant named `Unit` for methods without return values or possibly as trigger for default values.
+Setting `!` after *OutName* enables checking the returned variant by its name, not by its type.
+
+This variant allows you to go beyond one meaningful return type, but forces the handler method to enclose all return values in `enum` *OutName*. The unwrapping will be done in auto-generated method bodies.
+
+`enum` *OutName* includes only variants with return types named like methods, and one variant named `Unit` for methods without return values or possibly as trigger for default values. In addition, the `.stype()` method of `enum` is generated, which returns a string representation of the enum value type for diagnostic messages.
 
 In the generated method bodies, a variant of `enum` *OutName* that matches the type it contains with the return type in the method signature is unwrapped to the return type value, otherwise the method panics with a type mismatch message. If you want to panic if the `enum` variant *OutName* does not nominally match the method name, set the **`!`** after *OutName* in the macro attribute.
 
 It is possible to replace the type mismatch panic with a default expression by specifying it after the method signature in braces.
 
-As an example, let's make all methods except `content()` of our `blog::Post` output a `Result<&State, String>` type, with `Ok()` reflecting the `Post` state after the method and `Err()` - method impossibility message:
+As an example, let's make all methods except `content()` of our `blog::Post` output a `Result<&State, String>` type, with `Ok()` reflects the `Post` state after the method and `Err()` - method impossibility message:
 ```rust
 use blog::{Post, State};
 
@@ -349,12 +356,13 @@ mod blog {
         content: String,
     }
 
-    #[methods_enum::gen(Meth: run_methods = Out)]
+    #[methods_enum::gen(Meth: run_methods, Out)]
     impl Post {
         pub fn add_text(&mut self, text: &str) -> Result<&State, String>;
         pub fn request_review(&mut self) -> Result<&State, String>;
         pub fn approve(&mut self) -> Result<&State, String>;
-        pub fn content(&mut self) -> &str { "" }
+        #[rustfmt::skip]
+        pub fn content(&mut self) -> &str { "" } // default value
 
         fn run_methods(&mut self, method: Meth) -> Out {
             match self.state {
@@ -393,23 +401,21 @@ mod blog {
         }
 
         pub fn new() -> Post {
-            Post {
-                state: State::Draft,
-                content: String::new(),
-            }
+            Post { state: State::Draft, content: String::new() }
         }
     }
 }
 ```
 The `enum Out` declaration and the generated method bodies can be seen in the tooltip:
 
-![enum popup hint](https://github.com/vvshard/methods-enum/raw/master/doc/img/from_book__enumOut-popup.png)
+![enum popup hint](https://github.com/vvshard/methods-enum/raw/master/doc/img_0_2/OutName_1.png)
 
-![enum popup: bodies](https://github.com/vvshard/methods-enum/raw/master/doc/img/from_book__Out-popup_bodies.png)
+The macro passes the attributes and doc comments of the methods signatures to the compiler unchanged, without displaying them in the doc comment of the `enum`. Regular comments are skipped.
+![enum popup: bodies](https://github.com/vvshard/methods-enum/raw/master/doc/img_0_2/OutName_2.png)
 
 As you might guess from the last screenshot, the default value expression can use a return from a handler method in a variable with a name derived from *OutName* by converting it to lower case and preceding it with an underscore.
 
-For example, if in the `content()` method we need to return not `&str`, but `Result<&str, String>`, then in the expression for the default value `content()` we should put the Err conversion from the `Result<&State, String>` type to the type `Result<&str, String>`:
+For example, if in the `content()` method we need to return not `&str`, but `Result<&str, String>`, then in the expression for the default value `content()` we should put the Err conversion from the `Result<&State, String>` to the type `Result<&str, String>`:
 ```rust
 use blog::{Post, State};
 
@@ -453,63 +459,59 @@ mod blog {
         pub fn add_text(&mut self, text: &str) -> Result<&State, String>;
         pub fn request_review(&mut self) -> Result<&State, String>;
         pub fn approve(&mut self) -> Result<&State, String>;
-        pub fn content(&mut self) -> Result<&str, String> {
-            match _out {
-                Out::request_review(Err(e)) => Err(e),
-                _ => panic!("type mismatch in content() metod"), // never
-            }
-        }
+        #[rustfmt::skip]
+        pub fn content(&mut self) -> Result<&str, String> { match _out {
+                    Out::request_review(Err(e)) => Err(e),   // default value
+                    _ => panic!("Type mismatch in content() metod"), // never
+                }}
 // . . .
-#        fn run_methods(&mut self, method: Meth) -> Out {
-#            match self.state {
-#                State::Draft => match method {
-#                    Meth::add_text(text) => {
-#                        self.content.push_str(text);
-#                        Out::add_text(Ok(&self.state))
-#                    }
-#                    Meth::request_review() => {
-#                        self.state = State::PendingReview;
-#                        Out::request_review(Ok(&self.state))
-#                    }
-#                    m => self.method_not_possible(m),
-#                },
+#       fn run_methods(&mut self, method: Meth) -> Out {
+#           match self.state {
+#               State::Draft => match method {
+#                   Meth::add_text(text) => {
+#                       self.content.push_str(text);
+#                       Out::add_text(Ok(&self.state))
+#                   }
+#                   Meth::request_review() => {
+#                       self.state = State::PendingReview;
+#                       Out::request_review(Ok(&self.state))
+#                   }
+#                   m => self.method_not_possible(m),
+#               },
 #
-#                State::PendingReview => match method {
-#                    Meth::approve() => {
-#                        self.state = State::Published;
-#                        Out::approve(Ok(&self.state))
-#                    }
-#                    m => self.method_not_possible(m),
-#                },
+#               State::PendingReview => match method {
+#                   Meth::approve() => {
+#                       self.state = State::Published;
+#                       Out::approve(Ok(&self.state))
+#                   }
+#                   m => self.method_not_possible(m),
+#               },
 // . . .
                 State::Published => match method {
                     Meth::content() => Out::content(Ok(&self.content)),
                     m => self.method_not_possible(m),
                 },
 // . . .
-#            }
-#        }
+#           }
+#       }
 #
-#        fn method_not_possible(&self, act: Meth) -> Out {
-#            Out::request_review(Err(format!(
-#                "For State::{:?} method '{act:?}' is not possible",
-#                self.state
-#            )))
-#        }
+#       fn method_not_possible(&self, act: Meth) -> Out {
+#           Out::request_review(Err(format!(
+#               "For State::{:?} method '{act:?}' is not possible",
+#               self.state
+#           )))
+#       }
 #
-#        pub fn new() -> Post {
-#            Post {
-#                state: State::Draft,
-#                content: String::new(),
-#            }
-#        }
-#    }
+#       pub fn new() -> Post {
+#           Post { state: State::Draft, content: String::new() }
+#       }
+#   }
 // . . .
 }
 ```
-![enum popup hint](https://github.com/vvshard/methods-enum/raw/master/doc/img/from_book__2res-popup_Out.png)
+![enum popup hint](https://github.com/vvshard/methods-enum/raw/master/doc/img_0_2/OutNameRR_1.png)
 
-![enum popup: bodies](https://github.com/vvshard/methods-enum/raw/master/doc/img/from_book__2res-popup_bodies.png)
+![enum popup: bodies](https://github.com/vvshard/methods-enum/raw/master/doc/img_0_2/OutNameRR_2.png)
 
 ___
 All examples as .rs files plus from_book-task_and_2_result.rs file with extension to book task and using `Unit` are located in the directory: <https://github.com/vvshard/methods-enum/tree/master/tests>

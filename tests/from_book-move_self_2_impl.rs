@@ -20,13 +20,13 @@ mod blog {
         content: String,
     }
 
-    #[methods_enum::gen(Move: run_move)]
+    #[methods_enum::gen(Move, run_move)]
     impl Post {
         pub fn request_review(self) -> Post;
         pub fn approve(self) -> Post;
     }
 
-    #[methods_enum::gen(Meth: run_methods)]
+    #[methods_enum::gen(Meth, run_methods)]
     impl Post {
         pub fn add_text(&mut self, text: &str);
         pub fn content(&mut self) -> &str;

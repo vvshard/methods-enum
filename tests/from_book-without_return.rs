@@ -24,7 +24,7 @@ mod blog {
         content: String,
     }
 
-    #[methods_enum::gen(Meth: run_methods)]
+    #[methods_enum::gen(Meth, run_methods)]
     impl Post {
         /// Checking associated fn before signatures + doc comment
         pub fn new() -> Post {
@@ -60,7 +60,5 @@ mod blog {
                 },
             }
         }
-
-
     }
 }

@@ -54,7 +54,7 @@ mod blog {
         pub fn new() -> Post {
             Post { state: State::Draft, content: String::new() }
         }
-        
+
         pub fn add_text(&mut self, text: &str) -> Result<&str, String>;
         pub fn request_review(&mut self) -> Result<&State, String>;
         pub fn reject(&mut self);

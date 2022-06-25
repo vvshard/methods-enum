@@ -10,33 +10,36 @@ struct Attr {
     enum_name: String,
     enum_ident: Option<proc_macro::Ident>,
     run_method: String,
+    drv_dbg: bool,
     out_ident: Option<proc_macro::Ident>,
+    out_dbg: bool,
     strict_types: bool,
 }
 impl Attr {
     fn new(attr_ts: TokenStream) -> Attr {
         let mut attr_it = attr_ts.into_iter();
-        let (enum_id, run_method) = match [attr_it.next(), attr_it.next(), attr_it.next()] {
-            [Some(Ident(enum_id)), Some(Punct(p)), Some(Ident(run_id))] if p.as_char() == ':' => {
-                (enum_id, run_id.to_string())
+        let attr = match [attr_it.next(), attr_it.next(), attr_it.next()] {
+            [Some(Ident(id)), Some(Punct(p)), Some(Ident(r_id))] if ",:".contains(p.as_char()) => {
+                Attr {
+                    enum_name: id.to_string(),
+                    enum_ident: Some(id),
+                    run_method: r_id.to_string(),
+                    drv_dbg: p.as_char() == ':',
+                    ..Default::default()
+                }
             }
-            _ => panic!("syntax error in attribute #[methods_enum::gen(?? "),
-        };
-        let attr = Attr {
-            enum_name: enum_id.to_string(),
-            enum_ident: Some(enum_id.clone()),
-            run_method,
-            ..Default::default()
+            _ => panic!("Syntax error in attribute #[methods_enum::gen(?? "),
         };
         match [attr_it.next(), attr_it.next()] {
             [None, None] => attr,
-            [Some(Punct(p)), Some(Ident(out_id))] if p.as_char() == '=' => Attr {
-                out_ident: Some(out_id.clone()),
+            [Some(Punct(p)), Some(Ident(out_id))] if ",=".contains(p.as_char()) => Attr {
+                out_ident: Some(out_id),
+                out_dbg: p.as_char() == '=',
                 strict_types: matches!(attr_it.next(), Some(Punct(p)) if p.as_char() == '!'),
                 ..attr
             },
             _ => panic!(
-                "syntax error in attribute #[methods_enum::gen({}:{}??..",
+                "Syntax error in attribute #[methods_enum::gen({}:{}??..",
                 attr.enum_name, attr.run_method
             ),
         }
@@ -184,31 +187,25 @@ fn ts_to_doc(ts: &TokenStream) -> String {
         .collect()
 }
 
-/// Based on the signatures of the methods of the `impl` block, the are formed:
-/// `enum` with options from the tuples of arguments, and
-/// `{}` bodies of these methods with a call to the argument handler method from this `enum`.
+/// Based on the method signatures of the `impl` block, it generates: `enum` with parameters
+/// from argument tuples and generates `{}` bodies of these methods with calling the argument
+/// handler method from this `enum`.
 ///
 /// This allows the handler method to control the behavior of the methods depending on the context.
 ///
-/// There are two syntax options:
-///
-/// 1- For the case where methods returning a value have the same return type:
-///
-/// **`#[methods_enum::gen(`*EnumName*`: `*handler_name*`)]`**
+/// #### Macro call syntax
+/// **`#[methods_enum::gen(`*EnumName* `, ` | `: ` *handler_name* ( `, ` | ` = ` *OutName* `!`<sup>?</sup> )<sup>?</sup> `)]`**
 ///
 /// where:
-/// - *EnumName*: the name of the automatically generated enum.
-/// - *handler_name*: handler method name
+/// - ***EnumName***: The name of the automatically generated enum.
+/// - ***handler_name***: Handler method name
+/// - ***OutName*** (in case of more than one return type and/or to specify a default return values)
+/// : The name of an automatically generated enum with variants from the return types.
 ///
-/// 2- In case of more than one meaningful return type:
+/// Replacing the delimiter **`, `** after *EnumName* with **`: `** or before *OutName* with **` = `**
+/// will automatically add the `#[derive(Debug)]` attribute to the corresponding enum.
 ///
-/// **`#[methods_enum::gen(`*EnumName*`: `*handler_name*` = `*OutName*`)]`**
-///
-/// where:
-///  - *OutName*: the name of the automatically generated enum with variants from single tuples
-///    of return types.
-///
-/// In this case, you can also specify default return value expressions.
+/// Setting `!` after *OutName* enables checking the returned variant by its name, not by its type.
 ///
 /// See the [crate documentation](crate) for details.
 #[proc_macro_attribute]
@@ -237,14 +234,15 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
     let methods = Meth::filling_vec(&mut block_it, &attr);
 
-    let head_enum = r##"
+    let head = r##"
+        #[derive(Debug)]
         #[allow(non_camel_case_types)]
-        #[derive(Debug)] 
-        /// formed by macro [`#[methods_enum::gen(...)]`](https://docs.rs/methods-enum):
+        /// Formed by macro [`#[methods_enum::gen(...)]`](https://docs.rs/methods-enum):
         /// ```
-        /// #[allow(non_camel_case_types)]
         /// #[derive(Debug)]
+        /// #[allow(non_camel_case_types)]
         #[doc = "enum "##;
+    let head_w_o_dbg = head.lines().filter(|s| !s.ends_with("g)]")).collect::<Vec<_>>().join("\n");
     //                 (name.0, out.1, span.2)
     let mut outs: Vec<(String, String, Span)> = Vec::new();
     let mut enum_doc = String::new();
@@ -261,11 +259,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         }
     }
     let lftm = if enum_doc.contains('&') { "<'a>" } else { "" };
-    enum_doc.push_str("\n}\n\n");
-    enum_doc.push_str(
-        r#"//--- fn bodies generated by the `#[methods_enum::gen(...)]` macro: ---
-    "#,
-    );
+    enum_doc.push_str("\n}\n```\n---\nMethod bodies generated by the same macro:\n```");
 
     let is_result = attr.out_ident.is_none() && outs.iter().any(|t| t.1.contains("Result<"));
     let self_run_enum = format!("self.{}({}::", attr.run_method, attr.enum_name);
@@ -314,24 +308,20 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                     TokenStream::from_str(&format!("{lside} => x, {varname} => ")).unwrap();
                 if m.default.is_empty() {
                     let panic_s = format!(
-                        "panic!(
-                \"type mismatch in {ident}() metod:
+                        "panic!(\"Type mismatch in {ident}() metod:
                     expected- {},
-                    found- {out_enum}{{:?}}\", 
-                {varname})",
+                    found- {out_enum}{{:?}}\", {varname}.stype())",
                         lside
                             .replace("(x)", &format!("({out})"))
                             .replace(" | ", "\n                            | ")
                     );
-                    enum_doc.push_str(&panic_s.replace('"', "\\\""));
+                    enum_doc.push_str(&panic_s);
                     match_ts.extend(TokenStream::from_str(&panic_s).unwrap());
                 } else {
                     enum_doc.push_str(
                         &ts_to_doc(&m.default)
                             .replace(" {", " {\n            ")
-                            .replace(", _ =>", ",\n            _ =>")
-                            .escape_debug()
-                            .collect::<String>(),
+                            .replace(", _ =>", ",\n            _ =>"),
                     );
                     match_ts.extend(m.default);
                 }
@@ -346,8 +336,10 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     item_ts.extend([Group(proc_macro::Group::new(Brace, metods_ts))]);
 
     let mut res_ts = TokenStream::from_str(&format!(
-        "{head_enum}{}{lftm}{{{enum_doc}\n```\"] enum ",
-        attr.enum_name
+        "{}{}{lftm}{{{}\n```\"] enum ",
+        if attr.drv_dbg { head } else { &head_w_o_dbg },
+        attr.enum_name,
+        enum_doc.escape_debug().collect::<String>()
     ))
     .unwrap();
     res_ts.extend([Ident(attr.enum_ident.unwrap())]);
@@ -359,9 +351,15 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     if let Some(out_ident) = &attr.out_ident {
         enum_doc = "\n    Unit,".to_string();
         enum_ts = TokenStream::from_str("Unit, ").unwrap();
+        let indent = "\n            ";
+        let mut stype = format!(
+            "    fn stype(&self) -> &'static str {{
+        match self {{{indent}{out_ident}::Unit => \"Unit\","
+        );
         let mut lftm = "";
         for (name, mut out, span) in outs {
             enum_ts.extend([Ident(proc_macro::Ident::new(&name, span))]);
+            stype.push_str(&format!("{indent}{out_ident}::{name}(..) => \"{name}({out})\","));
             if out.contains('&') {
                 lftm = "<'a>";
                 out = out.replace('&', "&'a ");
@@ -369,15 +367,20 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             enum_ts.extend(TokenStream::from_str(&format!("({out}), ")));
             enum_doc.push_str(&format!("\n    {name}({out}), "));
         }
+        stype = format!("impl{lftm} {out_ident}{lftm} {{\n{stype}\n        }}\n    }}\n}}");
+        enum_doc = (enum_doc + "\n}\n\n" + &stype).escape_debug().collect();
+
         res_ts.extend(
             TokenStream::from_str(&format!(
-                "{head_enum}{out_ident}{lftm}{{{enum_doc}\n}}\n```\"] enum "
+                "{}{out_ident}{lftm}{{{enum_doc}\n```\"] enum ",
+                if attr.out_dbg { head } else { &head_w_o_dbg }
             ))
             .unwrap(),
         );
         res_ts.extend([Ident(out_ident.clone())]);
         res_ts.extend(TokenStream::from_str(lftm).unwrap());
         res_ts.extend([Group(proc_macro::Group::new(Brace, enum_ts))]);
+        res_ts.extend(TokenStream::from_str(&stype).unwrap());
     }
 
     if std::env::var("M_ENUM_DBG").map_or(false, |v| &v != "0") {

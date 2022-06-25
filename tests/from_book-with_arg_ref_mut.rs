@@ -2,15 +2,13 @@
 fn main() {
     let mut post = blog::Post::new();
 
-    let mut ext_content = "external content: ".to_string();
+    let mut ext_content = "External content: ".to_string();
 
     post.add_text("I ate a salad for lunch today", &mut ext_content);
     assert_eq!("", post.content());
-    assert_eq!("external content: I ate a salad for lunch today", ext_content);
+    assert_eq!("External content: I ate a salad for lunch today", ext_content);
 
     post.request_review();
-    assert_eq!("", post.content());
-
     post.approve();
     assert_eq!("I ate a salad for lunch today", post.content());
 }
@@ -27,7 +25,7 @@ mod blog {
         content: String,
     }
 
-    #[methods_enum::gen(Meth: run_methods)]
+    #[methods_enum::gen(Meth, run_methods)]
     impl Post {
         pub fn add_text(&mut self, text: &str, ex_content: &mut String);
         pub fn request_review(&mut self);
@@ -63,11 +61,7 @@ mod blog {
         }
 
         pub fn new() -> Post {
-            Post {
-                state: State::Draft,
-                content: String::new(),
-            }
+            Post { state: State::Draft, content: String::new() }
         }
     }
 }
-
