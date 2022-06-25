@@ -43,7 +43,7 @@ mod blog {
         #[rustfmt::skip]
         pub fn content(&mut self) -> Result<&str, String> { match _out {
                     Out::request_review(Err(e)) => Err(e),   // default value
-                    _ => panic!("Type mismatch in content() metod"), // never
+                    _ => panic!("Type mismatch in the content() method"), // never
                 }}
 
         fn run_methods(&mut self, method: Meth) -> Out {

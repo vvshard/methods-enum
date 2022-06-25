@@ -263,9 +263,9 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
     let is_result = attr.out_ident.is_none() && outs.iter().any(|t| t.1.contains("Result<"));
     let self_run_enum = format!("self.{}({}::", attr.run_method, attr.enum_name);
-    let mut metods_ts = TokenStream::new();
+    let mut methods_ts = TokenStream::new();
     for m in methods {
-        metods_ts.extend(m.prev_ts);
+        methods_ts.extend(m.prev_ts);
         if let Some(ident) = m.ident {
             enum_doc.push_str(&format!("\n{}fn {ident}({})", m.pub_s, ts_to_doc(&m.args)));
             let mut body_ts = TokenStream::new();
@@ -308,7 +308,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                     TokenStream::from_str(&format!("{lside} => x, {varname} => ")).unwrap();
                 if m.default.is_empty() {
                     let panic_s = format!(
-                        "panic!(\"Type mismatch in {ident}() metod:
+                        "panic!(\"Type mismatch in the {ident}() method:
                     expected- {},
                     found- {out_enum}{{}}\", {varname}.stype())",
                         lside
@@ -329,11 +329,11 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                 body_ts.extend([Group(proc_macro::Group::new(Brace, match_ts))]);
             }
             enum_doc.push_str("\n}");
-            metods_ts.extend([Group(proc_macro::Group::new(Brace, body_ts))]);
+            methods_ts.extend([Group(proc_macro::Group::new(Brace, body_ts))]);
         }
     }
-    metods_ts.extend(block_it);
-    item_ts.extend([Group(proc_macro::Group::new(Brace, metods_ts))]);
+    methods_ts.extend(block_it);
+    item_ts.extend([Group(proc_macro::Group::new(Brace, methods_ts))]);
 
     let mut res_ts = TokenStream::from_str(&format!(
         "{}{}{lftm}{{{}\n```\"] enum ",
