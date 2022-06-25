@@ -310,7 +310,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                     let panic_s = format!(
                         "panic!(\"Type mismatch in {ident}() metod:
                     expected- {},
-                    found- {out_enum}{{:?}}\", {varname}.stype())",
+                    found- {out_enum}{{}}\", {varname}.stype())",
                         lside
                             .replace("(x)", &format!("({out})"))
                             .replace(" | ", "\n                            | ")
