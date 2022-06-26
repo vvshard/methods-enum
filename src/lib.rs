@@ -160,7 +160,7 @@ impl Meth {
                     Start
                 }
                 (Out, Group(gr)) if gr.delimiter() == Brace => {
-                    m.default.extend(gr.stream());
+                    m.default = gr.stream();
                     methods.push(m);
                     m = Meth::default();
                     Start
@@ -339,7 +339,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         "{}{}{lftm}{{{}\n```\"] enum ",
         if attr.drv_dbg { head } else { &head_w_o_dbg },
         attr.enum_name,
-        enum_doc.escape_debug().collect::<String>()
+        enum_doc.escape_debug().to_string()
     ))
     .unwrap();
     res_ts.extend([Ident(attr.enum_ident.unwrap())]);
@@ -368,7 +368,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             enum_doc.push_str(&format!("\n    {name}({out}), "));
         }
         stype = format!("impl{lftm} {out_ident}{lftm} {{\n{stype}\n        }}\n    }}\n}}");
-        enum_doc = (enum_doc + "\n}\n\n" + &stype).escape_debug().collect();
+        enum_doc = (enum_doc + "\n}\n\n" + &stype).escape_debug().to_string();
 
         res_ts.extend(
             TokenStream::from_str(&format!(
