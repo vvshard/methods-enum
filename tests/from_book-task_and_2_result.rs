@@ -3,6 +3,10 @@ use blog::Post;
 use crate::blog::State;
 
 #[test]
+fn test_main(){
+    main();
+}
+
 fn main() {
     let mut post = Post::new();
 

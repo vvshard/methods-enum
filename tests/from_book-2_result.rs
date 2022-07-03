@@ -1,6 +1,10 @@
 use blog::{Post, State};
 
 #[test]
+fn test_main(){
+    main();
+}
+
 fn main() {
     let mut post = Post::new();
 

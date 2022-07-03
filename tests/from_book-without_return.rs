@@ -1,4 +1,8 @@
 #[test]
+fn test_main(){
+    main();
+}
+
 fn main() {
     let mut post = blog::Post::new();
 

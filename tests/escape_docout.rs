@@ -3,6 +3,10 @@ struct Foo {
 }
 
 #[test]
+fn test_main(){
+    main();
+}
+
 fn main() {
     let foo = Foo { x: 1 };
 
@@ -13,8 +17,6 @@ fn main() {
     assert_eq!(foo.i1(), 5 % 2 + 5 / 2);
     assert_eq!(foo.foo2().x, 2);
 }
-
-
 
 #[rustfmt::skip]
 #[methods_enum::gen(Meth, run, Out)]
