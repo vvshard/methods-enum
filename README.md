@@ -13,7 +13,7 @@ This allows the handler method to control the behavior of the methods depending 
 where:
 - ***EnumName***: The name of the automatically generated enum.
 - ***handler_name***: Handler method name
-- ***OutName*** (in case of more than one return type and/or to specify a default return values): The name of an automatically generated enum with variants from the return types. See [below for details on the *OutName* option.](#OutName)
+- ***OutName*** (in case of more than one return type and/or to specify a default return values): The name of an automatically generated enum with variants from the return types. See [below for details on the *OutName* option.](#syntax-variant-with-outname)
 
  Replacing the delimiter **`, `** after *EnumName* with **`: `** or before *OutName* with **` = `** will automatically add the `#[derive(Debug)]` attribute to the corresponding enum.
 
@@ -40,7 +40,7 @@ The option on different types is not applicable in cases where a single interfac
 By setting in Cargo.toml:
 ```toml
 [dependencies]
-methods-enum = "0.2.3"
+methods-enum = "0.2.4"
 ```
 this can be solved, for example, like this: 
 ```rust
@@ -118,7 +118,8 @@ The macro duplicates the output for the compiler in the doc-comments. Therefore,
 
 ![enum popup: bodies](https://github.com/vvshard/methods-enum/raw/master/doc/img_0_2/UsageExample_2.png)
 
-[^ide]: IDE support tested on 'rust-analyzer for VS Code v0.3.1083' - everything works: autocomplete, highlighting, tooltips, transitions, renames.
+[^ide]: IDE support tested on 'rust-analyzer for VS Code v0.3' - everything works: autocomplete, highlighting, tooltips, transitions, renames.  
+*rust-analyzer may not expand proc-macro when running under nightly or old rust edition.* In this case it is recommended to set in its settings: [`"rust-analyzer.server.extraEnv": { "RUSTUP_TOOLCHAIN": "stable" }`](https://rust-analyzer.github.io/manual.html#toolchain)
 
 Alternatively, the entire result of a macro can be output to the console at compile time by setting the session environment variable M_ENUM_DBG to a value other than "0". PowerShell example:
 ```PowerShell
@@ -302,7 +303,7 @@ mod blog {
 // . . .    
 }
 ```
-## Syntax variant with <em id="OutName">OutName</em>
+## Syntax variant with *OutName*
 
 **`#[methods_enum::gen(`*EnumName* `, ` | `: ` *handler_name* `, ` | ` = ` *OutName* `!`<sup>?</sup> `)]`**
 
@@ -464,9 +465,10 @@ mod blog {
                     Out::request_review(Err(e)) => Err(e),   // default value
                     _ => panic!("Type mismatch in the content() method"), // never
                 }}
+
+        fn run_methods(&mut self, method: Meth) -> Out {
+            match self.state {
 // . . .
-#       fn run_methods(&mut self, method: Meth) -> Out {
-#           match self.state {
 #               State::Draft => match method {
 #                   Meth::add_text(text) => {
 #                       self.content.push_str(text);
@@ -514,9 +516,8 @@ mod blog {
 ![enum popup: bodies](https://github.com/vvshard/methods-enum/raw/master/doc/img_0_2/OutNameRR_2.png)
 
 ___
-All examples as .rs files plus from_book-task_and_2_result.rs file with extension to book task and using `Unit` are located in the directory: <https://github.com/vvshard/methods-enum/tree/master/tests>
+All examples as .rs files plus state_machine.rs file and from_book-task_and_2_result.rs file with extension to book task and using `Unit` are located in the directory: <https://github.com/vvshard/methods-enum/tree/master/tests>
 
 # License
 MIT or Apache-2.0 license of your choice.
 ___
-

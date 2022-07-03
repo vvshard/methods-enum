@@ -245,7 +245,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     let head_w_o_dbg = head.lines().filter(|s| !s.ends_with("g)]")).collect::<Vec<_>>().join("\n");
     //                 (name.0, out.1, span.2)
     let mut outs: Vec<(String, String, Span)> = Vec::new();
-    let mut enum_doc = String::new();
+    let mut enum_doc = " {".to_string();
     let mut enum_ts = TokenStream::new();
     for m in methods.iter() {
         if let Some(ident) = &m.ident {
@@ -270,7 +270,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             enum_doc.push_str(&format!("\n{}fn {ident}({})", m.pub_s, ts_to_doc(&m.args)));
             let mut body_ts = TokenStream::new();
             let out = if m.out.is_empty() {
-                enum_doc.push_str("{");
+                enum_doc.push_str(" {");
                 if is_result {
                     enum_doc.push_str("\n    #![allow(unused_must_use)]");
                     body_ts.extend(TokenStream::from_str("#![allow(unused_must_use)]").unwrap());
@@ -279,7 +279,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             } else {
                 let name = ident.to_string();
                 let find_out = outs.iter().find(|t| t.0 == name).unwrap().1.clone();
-                enum_doc.push_str(&format!(" -> {find_out}{{"));
+                enum_doc.push_str(&format!(" -> {find_out} {{"));
                 find_out
             };
             let call_run = format!("{self_run_enum}{ident}({}))", m.params);
@@ -336,10 +336,10 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     item_ts.extend([Group(proc_macro::Group::new(Brace, methods_ts))]);
 
     let mut res_ts = TokenStream::from_str(&format!(
-        "{}{}{lftm}{{{}\n```\"] enum ",
+        "{}{}{lftm}{}\"] enum ",
         if attr.drv_dbg { head } else { &head_w_o_dbg },
         attr.enum_name,
-        enum_doc.escape_debug().to_string()
+        (enum_doc + "\n```").escape_debug().to_string()
     ))
     .unwrap();
     res_ts.extend([Ident(attr.enum_ident.unwrap())]);
@@ -349,7 +349,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     res_ts.extend(item_ts);
 
     if let Some(out_ident) = &attr.out_ident {
-        enum_doc = "\n    Unit,".to_string();
+        enum_doc = " {\n    Unit,".to_string();
         enum_ts = TokenStream::from_str("Unit, ").unwrap();
         let indent = "\n            ";
         let mut stype = format!(
@@ -368,11 +368,11 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             enum_doc.push_str(&format!("\n    {name}({out}), "));
         }
         stype = format!("impl{lftm} {out_ident}{lftm} {{\n{stype}\n        }}\n    }}\n}}");
-        enum_doc = (enum_doc + "\n}\n\n" + &stype).escape_debug().to_string();
+        enum_doc = (enum_doc + "\n}\n\n" + &stype + "\n```").escape_debug().to_string();
 
         res_ts.extend(
             TokenStream::from_str(&format!(
-                "{}{out_ident}{lftm}{{{enum_doc}\n```\"] enum ",
+                "{}{out_ident}{lftm}{enum_doc}\"] enum ",
                 if attr.out_dbg { head } else { &head_w_o_dbg }
             ))
             .unwrap(),
