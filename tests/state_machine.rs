@@ -25,9 +25,11 @@ impl State {
             },
             State::Waiting => match act {
                 Act::set() => println!("Waiting: s - select / r - refund "),
-                Act::input_char('s') => self.set_state(State::Dispense),
-                Act::input_char('r') => self.set_state(State::Refunding),
-                _ => self.set(),
+                Act::input_char(ch) => match ch { // could be so
+                    's' => self.set_state(State::Dispense),
+                    'r' => self.set_state(State::Refunding),
+                    _ => self.set(),
+                },
             },
             State::Dispense => match act {
                 Act::set() => println!("Dispense: r - remove "),
@@ -59,18 +61,13 @@ fn main() {
     machine.set();
 
     while !matches!(&machine, State::Exit) {
-        machine.input_char(char_entered());
+        let input_line = std::io::stdin().lines().next().unwrap().unwrap_or_default();
+        machine.input_char(input_line.chars().next().unwrap_or('\x0d'));
     }
 }
 
-fn char_entered() -> char {
-    let mut text = String::new();
-    (std::io::stdin().read_line(&mut text)).unwrap_or(0);
-    text.chars().next().unwrap_or('\x0d')
-}
-
 #[test]
-fn test(){
+fn test() {
     let mut machine = State::Ready;
     machine.set();
     assert!(matches!(&machine, State::Ready));
