@@ -392,3 +392,32 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
     res_ts
 }
+
+
+
+
+#[proc_macro]
+pub fn impl_match(input_ts: TokenStream) -> TokenStream {
+    // std::fs::write("target/debug/input_ts.txt", format!("{}\n\n{0:#?}", input_ts)).unwrap();
+
+    let mut input_it = input_ts.into_iter();
+
+    let mut input_ts = TokenStream::from_iter(
+        input_it.by_ref().take_while(|tt| !matches!(tt, Ident(id) if id.to_string() == "impl")),
+    );
+    input_ts.extend([Ident(proc_macro::Ident::new("impl", Span::call_site()))]);
+
+    let mut block_it = match [input_it.next(), input_it.next(), input_it.next()] {
+        [Some(Ident(item_n)), Some(Group(gr)), None] if gr.delimiter() == Brace => {
+            input_ts.extend([Ident(item_n)]);
+            gr.stream().into_iter()
+        }
+        m => panic!(
+            "SYNTAX ERROR: 
+        '': {m:?}"
+        ),
+    };
+
+    // let methods = Meth::filling_vec(&mut block_it, &attr);
+    input_ts
+}
