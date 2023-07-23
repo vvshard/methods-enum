@@ -1,13 +1,7 @@
-use blog::Post;
+use blog::{Post, State};
 
-use crate::blog::State;
 
-#[test]
-fn test_main() {
-    main();
-}
-
-fn main() {
+pub fn main() {
     let mut post = Post::new();
 
     assert_eq!(post.add_text("I ate a salad for lunch today"), Ok("I ate a salad for lunch today"));

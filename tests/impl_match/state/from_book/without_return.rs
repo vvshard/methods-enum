@@ -1,9 +1,4 @@
-#[test]
-fn test_main() {
-    main();
-}
-
-fn main() {
+pub fn main() {
     let mut post = blog::Post::new();
 
     post.add_text("I ate a salad for lunch today");

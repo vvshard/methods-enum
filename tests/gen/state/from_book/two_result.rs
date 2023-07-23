@@ -1,11 +1,6 @@
 use blog::{Post, State};
 
-#[test]
-fn test_main(){
-    main();
-}
-
-fn main() {
+pub fn main() {
     let mut post = Post::new();
 
     assert_eq!(post.add_text("I ate a salad for lunch today"), Ok(&State::Draft));
@@ -16,10 +11,13 @@ fn main() {
     );
 
     assert_eq!(post.request_review(), Ok(&State::PendingReview));
-    assert_eq!(post.content(), "");
+    assert_eq!(
+        post.content(),
+        Err("For State::PendingReview method 'content' is not possible".to_string())
+    );
 
     assert_eq!(post.approve(), Ok(&State::Published));
-    assert_eq!(post.content(), "I ate a salad for lunch today");
+    assert_eq!(post.content(), Ok("I ate a salad for lunch today"));
 }
 
 mod blog {
@@ -42,7 +40,10 @@ mod blog {
         pub fn request_review(&mut self) -> Result<&State, String>;
         pub fn approve(&mut self) -> Result<&State, String>;
         #[rustfmt::skip]
-        pub fn content(&mut self) -> &str { "" } // default value
+        pub fn content(&mut self) -> Result<&str, String> { match _out {
+                    Out::request_review(Err(e)) => Err(e),   // default value
+                    _ => panic!("Type mismatch in the content() method"), // never
+                }}
 
         fn run_methods(&mut self, method: Meth) -> Out {
             match self.state {
@@ -67,7 +68,7 @@ mod blog {
                 },
 
                 State::Published => match method {
-                    Meth::content() => Out::content(&self.content),
+                    Meth::content() => Out::content(Ok(&self.content)),
                     m => self.method_not_possible(m),
                 },
             }

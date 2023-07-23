@@ -1,9 +1,4 @@
-#[test]
-fn test_main(){
-    main();
-}
-
-fn main() {
+pub fn main() {
     let mut post = blog::Post::new();
 
     let mut ext_content = "External content: ".to_string();

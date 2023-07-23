@@ -56,7 +56,7 @@ impl State {
     }
 }
 
-fn main() {
+pub fn main() {
     let mut machine = State::Ready;
     machine.set();
 
@@ -66,8 +66,7 @@ fn main() {
     }
 }
 
-#[test]
-fn test() {
+pub fn test() {
     let mut machine = State::Ready;
     machine.set();
     assert!(matches!(&machine, State::Ready));
