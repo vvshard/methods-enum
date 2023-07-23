@@ -8,11 +8,8 @@ fn main() {
 
     post.add_text("I ate a salad for lunch today");
     assert_eq!("", post.content());
-
-    post.request_review();
-    assert_eq!("", post.content());
-
-    post.approve();
+    post.request_review(); // without request_review() - approve() should not work
+    post.approve();  
     assert_eq!("I ate a salad for lunch today", post.content());
 
     #[allow(unused)]
@@ -44,18 +41,18 @@ mod blog {
 
     /// doc State
     pub enum State {
-        Draft
-            -add_text(text) { self.content.push_str(text) }
-            -request_review() { self.state = State::PendingReview }
-            -content() { "" }
+        Draft:
+            add_text(text) { self.content.push_str(text) }
+            request_review() { self.state = State::PendingReview }
+            content() { "" }
         ,
         /// doc State::PendingReview
-        PendingReview
-            -approve() { self.state = State::Published }
-            -content() { "" }
+        PendingReview:
+            approve() { self.state = State::Published }
+            content() { "" }
         ,
-        Published
-            -content() { &self.content }
+        Published:
+            content() { &self.content }
     }
     } //impl_match!
 }

@@ -17,25 +17,6 @@ enum ParseStates {
 }
 use ParseStates::{Args, Gt, Minus, Name, Out, Start, Vis};
 
-#[derive(Default)]
-struct Meth {
-    ident: Option<proc_macro::Ident>,
-    prev_ts: TokenStream,
-    vis: TokenStream,
-    args: TokenStream,
-    params: String,
-    typs: String,
-    out_span: Option<Span>,
-    out: TokenStream,
-    body: TokenStream,
-}
-impl Meth {
-    fn prev_extend(&mut self, tt: proc_macro::TokenTree, new_st: ParseStates) -> ParseStates {
-        self.prev_ts.extend([tt]);
-        new_st
-    }
-}
-
 // region: region gen
 
 #[derive(Default)]
@@ -77,6 +58,19 @@ impl Attr {
             ),
         }
     }
+}
+
+#[derive(Default)]
+struct Meth {
+    ident: Option<proc_macro::Ident>,
+    prev_ts: TokenStream,
+    vis: TokenStream,
+    args: TokenStream,
+    params: String,
+    typs: String,
+    out_span: Option<Span>,
+    out: TokenStream,
+    body: TokenStream,
 }
 
 impl Meth {
@@ -129,7 +123,12 @@ impl Meth {
         st
     }
 
-    fn gen_vec(iit: &mut IntoIter, attr: &Attr) -> Vec<Meth> {
+    fn prev_extend(&mut self, tt: proc_macro::TokenTree, new_st: ParseStates) -> ParseStates {
+        self.prev_ts.extend([tt]);
+        new_st
+    }
+
+    fn vec(iit: &mut IntoIter, attr: &Attr) -> Vec<Meth> {
         let mut methods: Vec<Meth> = Vec::new();
         let mut m = Meth::default();
         let mut state = Start;
@@ -246,7 +245,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         ),
     };
 
-    let methods = Meth::gen_vec(&mut block_it, &attr);
+    let methods = Meth::vec(&mut block_it, &attr);
 
     let head = r##"
         #[derive(Debug)]
@@ -471,11 +470,22 @@ impl Item {
     }
 }
 
-impl Meth {
-    fn im_vec(iit: IntoIter) -> (Vec<Meth>, HashSet<String>) {
+#[derive(Default)]
+struct MethIM {
+    ident: Option<proc_macro::Ident>,
+    prev_ts: TokenStream,
+    body: TokenStream,
+}
+impl MethIM {
+    fn prev_extend(&mut self, tt: proc_macro::TokenTree, new_st: ParseStates) -> ParseStates {
+        self.prev_ts.extend([tt]);
+        new_st
+    }
+
+    fn vec(iit: IntoIter) -> (Vec<MethIM>, HashSet<String>) {
         let mut methods = Vec::new();
         let mut mset: HashSet<String> = HashSet::new();
-        let mut m = Meth::default();
+        let mut m = MethIM::default();
         let mut state = Start;
         for tt in iit {
             state = match (state, tt) {
@@ -491,12 +501,9 @@ impl Meth {
                             if body_it.all(|t| !matches!(t, Group(gr) if gr.delimiter() == Brace ))
                             {
                                 m.body = gr.stream();
-                                let name = m.ident.clone().unwrap().to_string();
-                                if let Some(nm) = mset.replace(name) {
-                                    panic!("impl_match!: duplication of fn `{nm}` in impl-block");
-                                }
+                                mset.insert(m.ident.clone().unwrap().to_string());
                                 methods.push(m);
-                                m = Meth::default();
+                                m = MethIM::default();
                                 break 'mtch;
                             }
                         }
@@ -504,6 +511,7 @@ impl Meth {
                     }
                     Start
                 }
+                (Out, Punct(p)) if p.as_char() == ';' => m.prev_extend(Punct(p), Start),
                 (Out, tt) => m.prev_extend(tt, Out),
                 (_, tt) => m.prev_extend(tt, Start),
             }
@@ -601,9 +609,7 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
             "Block impl_match{{}} must contain at least one impl{{}}-block and one enum{{}}-block"
         );
     }
-
-    let (methods, mset) = Meth::im_vec(std::mem::take(&mut items[i["impl"]].group).into_iter());
-
+    let (methods, mset) = MethIM::vec(std::mem::take(&mut items[i["impl"]].group).into_iter());
     let enm = Var::vec(&mut items[i["enum"]], &mset);
     let enm_name = items[i["enum"]].ident.to_string();
     let mut impl_group = TokenStream::new();
@@ -630,7 +636,6 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
         res_ts.extend(item.prev_ts);
         res_ts.extend([Group(Gr::new(Brace, item.group))]);
     }
-
     res_ts.extend(input_it);
 
     if std::env::var("M_ENUM_DBG").map_or(false, |v| &v != "0") {
