@@ -24,17 +24,15 @@ enum State {
             'r' => self.set_state(State::Ready),
             _ => self.set(),
         }},
-    Refunding:
-        set() { 
+    Refunding: set() { 
             println!("Refunding: refund of the deposit...");
             self.set_state(State::Ready);
         },
-    Exit:
-        set() { println!("Exit: goodbye!") }
+    Exit: set() { println!("Exit: goodbye!") }
 }
 impl State {
-    pub fn set(&mut self)                           ~{ match *self }
-    pub fn input_char(&mut self, ch: char)          ~{ match *self }
+    pub fn set(&mut self)                       ~{ match *self }
+    pub fn input_char(&mut self, ch: char)      ~{ match *self }
 
     fn set_state(&mut self, new_state: State) {
         *self = new_state;

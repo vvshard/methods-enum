@@ -5,6 +5,7 @@ use core::str::FromStr;
 use proc_macro::Group as Gr;
 use proc_macro::TokenTree::{Group, Ident, Punct};
 use proc_macro::{token_stream::IntoIter, Delimiter, Delimiter::Brace, Spacing, Span, TokenStream};
+use std::iter::once;
 
 enum ParseStates {
     Start,
@@ -119,12 +120,12 @@ impl Meth {
             self.out_span = None;
             self.out = TokenStream::new();
         }
-        self.prev_ts.extend([Group(args_gr)]);
+        self.prev_ts.extend(once(Group(args_gr)));
         st
     }
 
     fn prev_extend(&mut self, tt: proc_macro::TokenTree, new_st: ParseStates) -> ParseStates {
-        self.prev_ts.extend([tt]);
+        self.prev_ts.extend(once(tt));
         new_st
     }
 
@@ -135,11 +136,11 @@ impl Meth {
         for tt in iit {
             state = match (state, tt) {
                 (Start, Ident(id)) if id.to_string() == "pub" => {
-                    m.vis.extend([Ident(id.clone())]);
+                    m.vis.extend(once(Ident(id.clone())));
                     m.prev_extend(Ident(id), Vis)
                 }
                 (Vis, Group(gr)) if gr.delimiter() == Delimiter::Parenthesis => {
-                    m.vis.extend([Group(gr.clone())]);
+                    m.vis.extend(once(Group(gr.clone())));
                     m.prev_extend(Group(gr), Vis)
                 }
                 (st @ (Start | Vis), Ident(id)) if id.to_string() == "fn" => {
@@ -149,7 +150,7 @@ impl Meth {
                     m.prev_extend(Ident(id), Name)
                 }
                 (Name, Ident(id)) => {
-                    m.prev_ts.extend([Ident(id.clone())]);
+                    m.prev_ts.extend(once(Ident(id.clone())));
                     if id.to_string() == attr.run_method {
                         break;
                     }
@@ -232,11 +233,11 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     let mut item_ts = TokenStream::from_iter(
         item_it.by_ref().take_while(|tt| !matches!(tt, Ident(id) if id.to_string() == "impl")),
     );
-    item_ts.extend([Ident(proc_macro::Ident::new("impl", Span::call_site()))]);
+    item_ts.extend(once(Ident(proc_macro::Ident::new("impl", Span::call_site()))));
 
     let mut block_it = match [item_it.next(), item_it.next(), item_it.next()] {
         [Some(Ident(item_n)), Some(Group(gr)), None] if gr.delimiter() == Brace => {
-            item_ts.extend([Ident(item_n)]);
+            item_ts.extend(once(Ident(item_n)));
             gr.stream().into_iter()
         }
         m => panic!(
@@ -262,7 +263,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     let mut enum_ts = TokenStream::new();
     for m in methods.iter() {
         if let Some(ident) = &m.ident {
-            enum_ts.extend([Ident(ident.clone())]);
+            enum_ts.extend(once(Ident(ident.clone())));
             let typs = m.typs.replace('&', "&'a ");
             enum_ts.extend(TokenStream::from_str(&format!("({typs}), ")));
             enum_doc.push_str(&format!("\n    {ident}({typs}), "));
@@ -305,7 +306,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                 body_ts.extend(TokenStream::from_str(&call_run).unwrap());
                 if m.out.is_empty() {
                     enum_doc.push_str(";");
-                    body_ts.extend([Punct(proc_macro::Punct::new(';', Spacing::Alone))]);
+                    body_ts.extend(once(Punct(proc_macro::Punct::new(';', Spacing::Alone))));
                 }
             } else if let Some(out_ident) = &attr.out_ident {
                 enum_doc.push_str(&format!("\n    match {call_run} {{"));
@@ -343,14 +344,14 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                     match_ts.extend(m.body);
                 }
                 enum_doc.push_str("\n    }");
-                body_ts.extend([Group(Gr::new(Brace, match_ts))]);
+                body_ts.extend(once(Group(Gr::new(Brace, match_ts))));
             }
             enum_doc.push_str("\n}");
-            methods_ts.extend([Group(Gr::new(Brace, body_ts))]);
+            methods_ts.extend(once(Group(Gr::new(Brace, body_ts))));
         }
     }
     methods_ts.extend(block_it);
-    item_ts.extend([Group(Gr::new(Brace, methods_ts))]);
+    item_ts.extend(once(Group(Gr::new(Brace, methods_ts))));
 
     let mut res_ts = TokenStream::from_str(&format!(
         "{}{}{lftm}{}\"] enum ",
@@ -359,9 +360,9 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         (enum_doc + "\n```").escape_debug().to_string()
     ))
     .unwrap();
-    res_ts.extend([Ident(attr.enum_ident.unwrap())]);
+    res_ts.extend(once(Ident(attr.enum_ident.unwrap())));
     res_ts.extend(TokenStream::from_str(lftm).unwrap());
-    res_ts.extend([Group(Gr::new(Brace, enum_ts))]);
+    res_ts.extend(once(Group(Gr::new(Brace, enum_ts))));
 
     res_ts.extend(item_ts);
 
@@ -375,7 +376,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         );
         let mut lftm = "";
         for (name, mut out, span) in outs {
-            enum_ts.extend([Ident(proc_macro::Ident::new(&name, span))]);
+            enum_ts.extend(once(Ident(proc_macro::Ident::new(&name, span))));
             stype.push_str(&format!("{indent}{out_ident}::{name}(..) => \"{name}({out})\","));
             if out.contains('&') {
                 lftm = "<'a>";
@@ -387,16 +388,13 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         stype = format!("impl{lftm} {out_ident}{lftm} {{\n{stype}\n        }}\n    }}\n}}");
         enum_doc = (enum_doc + "\n}\n\n" + &stype + "\n```").escape_debug().to_string();
 
-        res_ts.extend(
-            TokenStream::from_str(&format!(
-                "{}{out_ident}{lftm}{enum_doc}\"] enum ",
-                if attr.out_dbg { head } else { &head_w_o_dbg }
-            ))
-            .unwrap(),
-        );
-        res_ts.extend([Ident(out_ident.clone())]);
+        res_ts.extend(TokenStream::from_str(&format!(
+            "{}{out_ident}{lftm}{enum_doc}\"] enum ",
+            if attr.out_dbg { head } else { &head_w_o_dbg }
+        )));
+        res_ts.extend(once(Ident(out_ident.clone())));
         res_ts.extend(TokenStream::from_str(lftm).unwrap());
-        res_ts.extend([Group(Gr::new(Brace, enum_ts))]);
+        res_ts.extend(once(Group(Gr::new(Brace, enum_ts))));
         res_ts.extend(TokenStream::from_str(&stype).unwrap());
     }
 
@@ -431,7 +429,7 @@ struct Item {
 impl Item {
     fn prev_extend(&mut self, tt: proc_macro::TokenTree, gr_wait: bool) -> bool {
         if !self.no_def {
-            self.prev_ts.extend([tt])
+            self.prev_ts.extend(once(tt))
         }
         gr_wait
     }
@@ -474,7 +472,7 @@ impl Item {
                             items.push(mem::take(&mut item));
                         } else {
                             item.ident = String::new();
-                            item.prev_ts.extend([Group(gr)]);
+                            item.prev_ts.extend(once(Group(gr)));
                         }
                     }
                     false
@@ -498,7 +496,7 @@ impl Item {
                     m.prev_extend(Ident(id), Gt)
                 }
                 (Gt, Group(gr)) if gr.delimiter() == Brace => m.prev_extend(Group(gr), Start),
-                (Gt, Punct(p)) if ";#".contains(p.as_char()) => m.prev_extend(Punct(p), Start),
+                (Gt, Punct(p)) if p.as_char() == ';' => m.prev_extend(Punct(p), Start),
                 (Gt, Punct(p)) if p.as_char() == '~' => Out,
                 (Gt, tt) => m.prev_extend(tt, Gt),
                 (Out, Group(gr)) if gr.delimiter() == Brace => {
@@ -506,10 +504,7 @@ impl Item {
                         mset.insert(m.ident.clone());
                         self.methods.push(mem::take(&mut m));
                     } else {
-                        m.prev_ts.extend([
-                            // Punct(proc_macro::Punct::new('~', Spacing::Alone)), // is a compiler error required here?
-                            Group(gr),
-                        ])
+                        m.prev_ts.extend(once(Group(gr)))
                     }
                     Start
                 }
@@ -530,7 +525,7 @@ struct MethIM {
 }
 impl MethIM {
     fn prev_extend(&mut self, tt: proc_macro::TokenTree, new_st: ParseStates) -> ParseStates {
-        self.prev_ts.extend([tt]);
+        self.prev_ts.extend(once(tt));
         new_st
     }
 
@@ -541,7 +536,7 @@ impl MethIM {
         while let Some(tt) = iit.next() {
             match (found, tt) {
                 (false, Ident(id)) if id.to_string() == "match" => {
-                    self.body.extend([Ident(id)]);
+                    self.body.extend(once(Ident(id)));
                     found = true;
                 }
                 (true, Group(gr)) if gr.delimiter() == Brace => {
@@ -549,11 +544,11 @@ impl MethIM {
                         self.tail.extend(iit);
                         return true;
                     } else {
-                        self.body.extend([Group(gr)]);
+                        self.body.extend(once(Group(gr)));
                         found = false;
                     }
                 }
-                (_, tt) => self.body.extend([tt]),
+                (_, tt) => self.body.extend(once(tt)),
             }
         }
         found
@@ -564,12 +559,13 @@ impl MethIM {
 struct Var {
     name: String,
     fields: Option<Gr>,
-    methods: HashMap<String, Gr>,
+    methods: HashMap<String, (Option<Gr>, Gr)>,
 }
 impl Var {
     fn vec(item: &mut Item, mset: &HashSet<String>, enm_n: &String) -> Vec<Var> {
         let mut iit = mem::take(&mut item.group).into_iter();
         let mut enm: Vec<Var> = Vec::new();
+        let dd = TokenStream::from_str("..").unwrap();
         let mut var = Var::default();
         while let Some(tt) = iit.next() {
             match tt {
@@ -588,7 +584,7 @@ impl Var {
                 Ident(id) => {
                     let name = id.to_string();
                     if var.name.is_empty() {
-                        item.group.extend([Ident(id)]);
+                        item.group.extend(once(Ident(id)));
                         var.name = name;
                     } else {
                         // method name
@@ -619,7 +615,11 @@ impl Var {
                                 if g_arg.delimiter() == Delimiter::Parenthesis
                                     && g_block.delimiter() == Brace =>
                             {
-                                if var.methods.insert(name.clone(), g_block).is_some() {
+                                if var
+                                    .methods
+                                    .insert(name.clone(), (var.fields.clone(), g_block))
+                                    .is_some()
+                                {
                                     panic!(
                                         "impl_match!: {} `{name}` in `enum {enm_n}::{}`",
                                         "repetition of method name", var.name
@@ -634,17 +634,19 @@ impl Var {
                         }
                     }
                 }
-                Group(gr) if gr.delimiter() != Delimiter::Bracket && var.methods.is_empty() => {
-                    if var.fields.is_none() {
-                        item.group.extend([Group(gr)]);
-                        var.fields = Some(Gr::new(Brace, TokenStream::new()));
-                    } else {
-                        var.fields = Some(gr);
+                Group(gr) if gr.delimiter() != Delimiter::Bracket => {
+                    match (var.methods.is_empty(), var.fields.is_none()) {
+                        (true, true) => {
+                            var.fields = Some(Gr::new(gr.delimiter(), dd.clone()));
+                            item.group.extend(once(Group(gr)));
+                        }
+                        (_, false) => var.fields = Some(gr),
+                        _ => (),
                     }
                 }
                 Punct(p) if p.as_char() == ',' => {
                     if !var.name.is_empty() {
-                        item.group.extend([Punct(p)]);
+                        item.group.extend(once(Punct(p)));
                         enm.push(mem::take(&mut var));
                     }
                 }
@@ -663,13 +665,17 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     // std::fs::write("target/debug/input_ts.log", format!("{}\n\n{0:#?}", input_ts)).unwrap();
 
     let (mut items, mset) = Item::vec(input_ts);
-    let opt_enm = (items.iter().enumerate().find_map(|(i, it)| it.no_def.then(|| i)))
+    let opt_enm_i = (items.iter().enumerate().find_map(|(i, it)| it.no_def.then(|| i)))
         .or_else(|| items.iter().enumerate().find_map(|(i, it)| it.it_enum.then(|| i)));
-    let (mut enm, enm_n) = opt_enm.map_or((Vec::new(), String::new()), |i| {
-        let it = items.get_mut(i).unwrap();
-        let enm_n = it.ident.clone();
-        (Var::vec(it, &mset, &enm_n), enm_n)
+    let (mut enm, enm_n) = opt_enm_i.map_or((Vec::new(), String::new()), |i| {
+        let enm_item = items.get_mut(i).unwrap();
+        let enm_n = enm_item.ident.clone();
+        (Var::vec(enm_item, &mset, &enm_n), enm_n)
     });
+    let fat_arrow = TokenStream::from_str("=>").unwrap();
+    let empty_gr = Gr::new(Brace, TokenStream::new());
+    let dd = TokenStream::from_str("..").unwrap();
+    let dd_gr = |g: &Gr| Gr::new(g.delimiter(), dd.clone());
 
     let mut res_ts = TokenStream::new();
     for mut item in items {
@@ -682,27 +688,24 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                 for mut m in item.methods {
                     group.extend(m.prev_ts);
                     if !m.ident.is_empty() {
-                        let mut block_ts = TokenStream::new();
+                        let mut block = TokenStream::new();
                         for var in enm.iter_mut() {
-                            block_ts
-                                .extend(TokenStream::from_str(&format!("{enm_n}::{}", var.name)));
-                            if var.fields.is_some() {
-                                block_ts.extend([Group(var.fields.clone().unwrap())]);
-                            }
-                            block_ts.extend(TokenStream::from_str("=>"));
-                            block_ts.extend([Group(match var.methods.get_mut(&m.ident) {
-                                Some(gr) => mem::replace(gr, Gr::new(Brace, TokenStream::new())),
-                                None => Gr::new(Brace, TokenStream::new()),
-                            })]);
+                            let (fields, arm_block) = match var.methods.get_mut(&m.ident) {
+                                Some((f, gr)) => (f.take(), mem::replace(gr, empty_gr.clone())),
+                                None => (var.fields.as_ref().map(dd_gr), empty_gr.clone()),
+                            };
+                            block.extend(TokenStream::from_str(&format!("{enm_n}::{}", var.name)));
+                            block.extend(fields.map(Group));
+                            block.extend(fat_arrow.clone());
+                            block.extend(once(Group(arm_block)));
                         }
-                        m.body.extend([Group(Gr::new(Brace, block_ts))]);
-                        m.body.extend(m.tail);
-                        group.extend([Group(Gr::new(Brace, m.body))]);
+                        m.body.extend(once(Group(Gr::new(Brace, block))).chain(m.tail));
+                        group.extend(once(Group(Gr::new(Brace, m.body))));
                     }
                 }
                 group
             };
-            res_ts.extend([Group(Gr::new(Brace, group))]);
+            res_ts.extend(once(Group(Gr::new(Brace, group))));
         }
     }
 

@@ -70,21 +70,18 @@ mod blog {
 
             approve() { Err(self.method_not_possible("approve()")) }
         ,
-        PendingReview { number_approvals: u32 }: { number_approvals: _approvals }
+        PendingReview { number_approvals: u32 }: { number_approvals }
             approve() {
-                if _approvals == 1 {
+                if number_approvals == 1 {
                     self.state = State::Published;
                     Ok(&self.state)
                 } else {
                     self.state =
-                        State::PendingReview { number_approvals: _approvals + 1 };
+                        State::PendingReview { number_approvals: number_approvals + 1 };
                     Ok(&self.state)
                 }
-            }
-            reject() {
-                self.state = State::Draft;
-            }
-
+            }; {..}
+            reject() { self.state = State::Draft }
             add_text() { Err(self.method_not_possible("add_text()")) }
             request_review() { Err(self.method_not_possible("request_review()")) }
             ,
