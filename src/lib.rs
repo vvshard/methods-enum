@@ -476,7 +476,7 @@ struct MethIM {
     ident: String,
     prev_ts: TokenStream,
     body: TokenStream,
-    after: TokenStream,
+    tail: TokenStream,
 }
 impl MethIM {
     fn prev_extend(&mut self, tt: proc_macro::TokenTree, new_st: ParseStates) -> ParseStates {
@@ -486,35 +486,35 @@ impl MethIM {
 
     fn found_match(&mut self, body: &Gr) -> bool {
         self.body = TokenStream::new();
-        let iit = body.stream().into_iter();
-        let mut state = Start;
-        for tt in iit {
-            match (&mut state, tt) {
-                (Start, Ident(id)) if id.to_string() == "match" => {
+        let mut iit = body.stream().into_iter();
+        let mut found = false;
+        while let Some(tt) = iit.next() {
+            match (found, tt) {
+                (false, Ident(id)) if id.to_string() == "match" => {
                     self.body.extend([Ident(id)]);
-                    state = Name
+                    found = true;
                 }
-                (Name, Group(gr)) if gr.delimiter() == Brace => {
+                (true, Group(gr)) if gr.delimiter() == Brace => {
                     if gr.stream().is_empty() {
-                        state = Out
+                        self.tail.extend(iit);
+                        return true;
                     } else {
                         self.body.extend([Group(gr)]);
-                        state = Start
+                        found = false;
                     }
                 }
-                (Out, tt) => self.after.extend([tt]),
                 (_, tt) => self.body.extend([tt]),
             }
         }
-        !matches!(state, Start)
+        found
     }
 
-    fn vec(iit: IntoIter) -> (Vec<MethIM>, HashSet<String>) {
+    fn vec(ts: TokenStream) -> (Vec<MethIM>, HashSet<String>) {
         let mut methods = Vec::new();
         let mut mset: HashSet<String> = HashSet::new();
         let mut m = MethIM::default();
         let mut state = Start;
-        for tt in iit {
+        for tt in ts {
             state = match (state, tt) {
                 (Start, Ident(id)) if id.to_string() == "fn" => m.prev_extend(Ident(id), Name),
                 (Name, Ident(id)) => {
@@ -548,7 +548,7 @@ struct Var {
     methods: HashMap<String, Gr>,
 }
 impl Var {
-    fn vec(item: &mut Item, mset: &HashSet<String>) -> Vec<Var> {
+    fn vec(item: &mut Item, mset: &HashSet<String>, enm_name: &String) -> Vec<Var> {
         let mut iit = std::mem::take(&mut item.group).into_iter();
         let mut enm = Vec::new();
         let mut var = Var::default();
@@ -559,7 +559,7 @@ impl Var {
                         item.group.extend([Punct(p), Group(gr)]);
                     }
                     _ => panic!(
-                        "impl_match!: unexpected character '#' in enum `{}` variant",
+                        "impl_match!: unexpected character '#' in `enum {enm_name}::{}`",
                         var.name
                     ),
                 },
@@ -571,7 +571,7 @@ impl Var {
                     } else {
                         if !mset.contains(&name) {
                             panic!(
-                                "impl_match!: invalid method name `{}` in enum `{}` variant",
+                                "impl_match!: invalid method name `{}` in `enum {enm_name}::{}`",
                                 name, var.name
                             );
                         }
@@ -582,14 +582,14 @@ impl Var {
                             {
                                 if var.methods.insert(name.clone(), g_block).is_some() {
                                     panic!(
-                                        "impl_match!: {} `{}` in enum variant `{}`",
+                                        "impl_match!: {} `{}` in `enum {enm_name}::{}`",
                                         "repetition of method name", name, var.name
                                     )
                                 }
                             }
                             _ => panic!(
-                                "impl_match!: invalid syntax in method `{}` in enum `{}` variant",
-                                name, var.name
+                                "impl_match!: {} `{}` in `enum {enm_name}::{}`",
+                                "invalid syntax in method", name, var.name
                             ),
                         }
                     }
@@ -597,7 +597,7 @@ impl Var {
                 Punct(p) if p.as_char() == ',' => {
                     if var.name.is_empty() {
                         panic!(
-                            "impl_match!: unexpected character ',' in enum `{}` variant",
+                            "impl_match!: unexpected character ',' in `enum {enm_name}::{}`",
                             var.name
                         )
                     }
@@ -622,16 +622,15 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     let mut input_it = input_ts.into_iter();
 
     let (mut items, i) = Item::vec(&mut input_it);
-
     if items.len() < 2 {
         panic!(
             "impl_match!: {}",
             "Block impl_match{{}} must contain at least one impl{{}}-block and one enum{{}}-block"
         );
     }
-    let (methods, mset) = MethIM::vec(std::mem::take(&mut items[i["impl"]].group).into_iter());
-    let enm = Var::vec(&mut items[i["enum"]], &mset);
+    let (methods, mset) = MethIM::vec(std::mem::take(&mut items[i["impl"]].group));
     let enm_name = items[i["enum"]].ident.to_string();
+    let enm = Var::vec(&mut items[i["enum"]], &mset, &enm_name);
     let mut impl_group = TokenStream::new();
     for mut m in methods {
         impl_group.extend(m.prev_ts);
@@ -645,23 +644,18 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                 })]);
             }
             m.body.extend([Group(Gr::new(Brace, block_ts))]);
-            m.body.extend(m.after);
+            m.body.extend(m.tail);
             impl_group.extend([Group(Gr::new(Brace, m.body))]);
         }
     }
     items[i["impl"]].group = impl_group;
 
     let mut res_ts = TokenStream::new();
-
     for item in items {
         res_ts.extend(item.prev_ts);
         res_ts.extend([Group(Gr::new(Brace, item.group))]);
     }
     res_ts.extend(input_it);
-
-    if std::env::var("M_ENUM_DBG").map_or(false, |v| &v != "0") {
-        println!("\nM_ENUM_DBG - output to compiler input for impl_match:\n{}\n", res_ts);
-    }
 
     res_ts
 }
