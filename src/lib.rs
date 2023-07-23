@@ -2,6 +2,7 @@
 //! [crate documentation](crate)
 
 use core::str::FromStr;
+use proc_macro::Group as Gr;
 use proc_macro::TokenTree::{Group, Ident, Punct};
 use proc_macro::{token_stream::IntoIter, Delimiter, Delimiter::Brace, Spacing, Span, TokenStream};
 
@@ -35,7 +36,7 @@ impl Meth {
     }
 }
 
-// region: gen
+// region: region gen
 
 #[derive(Default)]
 struct Attr {
@@ -80,7 +81,7 @@ impl Attr {
 
 impl Meth {
     /// on successful parsing of the arguments returns `Minus`, otherwise - `Start`
-    fn args_parsing(&mut self, args_gr: proc_macro::Group) -> ParseStates {
+    fn args_parsing(&mut self, args_gr: Gr) -> ParseStates {
         let mut args_it = args_gr.stream().into_iter();
         let mut lg = 0;
         let mut first = true;
@@ -214,7 +215,7 @@ fn ts_to_doc(ts: &TokenStream) -> String {
 /// See the [crate documentation](crate) for details.
 #[proc_macro_attribute]
 pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
-    // std::fs::write("target/debug/item_ts.json", format!("{}\n\n{0:#?}", item_ts)).unwrap();
+    // std::fs::write("target/debug/item_ts.log", format!("{}\n\n{0:#?}", item_ts)).unwrap();
 
     let attr = Attr::new(attr_ts);
 
@@ -330,14 +331,14 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                     match_ts.extend(m.body);
                 }
                 enum_doc.push_str("\n    }");
-                body_ts.extend([Group(proc_macro::Group::new(Brace, match_ts))]);
+                body_ts.extend([Group(Gr::new(Brace, match_ts))]);
             }
             enum_doc.push_str("\n}");
-            methods_ts.extend([Group(proc_macro::Group::new(Brace, body_ts))]);
+            methods_ts.extend([Group(Gr::new(Brace, body_ts))]);
         }
     }
     methods_ts.extend(block_it);
-    item_ts.extend([Group(proc_macro::Group::new(Brace, methods_ts))]);
+    item_ts.extend([Group(Gr::new(Brace, methods_ts))]);
 
     let mut res_ts = TokenStream::from_str(&format!(
         "{}{}{lftm}{}\"] enum ",
@@ -348,7 +349,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     .unwrap();
     res_ts.extend([Ident(attr.enum_ident.unwrap())]);
     res_ts.extend(TokenStream::from_str(lftm).unwrap());
-    res_ts.extend([Group(proc_macro::Group::new(Brace, enum_ts))]);
+    res_ts.extend([Group(Gr::new(Brace, enum_ts))]);
 
     res_ts.extend(item_ts);
 
@@ -383,7 +384,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         );
         res_ts.extend([Ident(out_ident.clone())]);
         res_ts.extend(TokenStream::from_str(lftm).unwrap());
-        res_ts.extend([Group(proc_macro::Group::new(Brace, enum_ts))]);
+        res_ts.extend([Group(Gr::new(Brace, enum_ts))]);
         res_ts.extend(TokenStream::from_str(&stype).unwrap());
     }
 
@@ -401,10 +402,9 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
 // #####     #####     #####     #####     #####     #####     #####     #####
 
-// region: impl_match
+// region: region impl_match
 
 use std::collections::{HashMap, HashSet};
-use std::mem::take;
 
 #[derive(Default)]
 struct Item {
@@ -417,6 +417,7 @@ impl Item {
         self.prev_ts.extend([tt]);
         new_st
     }
+
     fn vec(iit: &mut IntoIter) -> (Vec<Item>, HashMap<&'static str, usize>) {
         let mut items = Vec::new();
         let mut i: HashMap<&'static str, usize> = HashMap::from([("impl", 2), ("enum", 2)]);
@@ -495,7 +496,7 @@ impl Meth {
                     }
                     Start
                 }
-                (Minus, tt) => m.prev_extend(tt, Minus),
+                (st @ (Minus | Out), tt) => m.prev_extend(tt, st),
 
                 (_, tt) => m.prev_extend(tt, Start),
             }
@@ -509,25 +510,29 @@ impl Meth {
 #[derive(Default)]
 struct Var {
     name: String,
-    prev_ts: TokenStream,
-    methods: HashMap<String, proc_macro::Group>,
+    methods: HashMap<String, Gr>,
 }
 impl Var {
-    fn vec(mut iit: IntoIter, mset: &HashSet<String>) -> Vec<Var> {
+    fn vec(item: &mut Item, mset: &HashSet<String>) -> Vec<Var> {
+        let mut iit = std::mem::take(&mut item.group).into_iter();
         let mut enm = Vec::new();
         let mut var = Var::default();
         while let Some(tt) = iit.next() {
             match tt {
+                Punct(p) if p.as_char() == '#' => match (iit.next(), &var.name[..]) {
+                    (Some(Group(gr)), "") if gr.delimiter() == Delimiter::Bracket => {
+                        item.group.extend([Punct(p), Group(gr)]);
+                    }
+                    _ => panic!(
+                        "impl_match!: unexpected character '#' in enum `{}` variant",
+                        var.name
+                    ),
+                },
                 Ident(id) => {
                     let name = id.to_string();
-                    if name.chars().next().unwrap().is_uppercase() {
-                        if !var.name.is_empty() {
-                            enm.push(var);
-                            var = Var::default();
-                        }
+                    if var.name.is_empty() {
+                        item.group.extend([Ident(id)]);
                         var.name = name;
-                    } else if var.name.is_empty() {
-                        panic!("impl_match!: lowercase in enum variant: `{}`", name)
                     } else {
                         if !mset.contains(&name) {
                             panic!(
@@ -542,8 +547,8 @@ impl Var {
                             {
                                 if var.methods.insert(name.clone(), g_block).is_some() {
                                     panic!(
-                                        "repetition of method name `{}` in enum variant `{}`",
-                                        name, var.name
+                                        "impl_match!: {} `{}` in enum variant `{}`",
+                                        "repetition of method name", name, var.name
                                     )
                                 }
                             }
@@ -554,15 +559,17 @@ impl Var {
                         }
                     }
                 }
-                Punct(p) if p.as_char() == '#' => match (iit.next(), &var.name[..]) {
-                    (Some(Group(gr)), "") if gr.delimiter() == Delimiter::Bracket => {
-                        var.prev_ts.extend([Punct(p), Group(gr)]);
+                Punct(p) if p.as_char() == ',' => {
+                    if var.name.is_empty() {
+                        panic!(
+                            "impl_match!: unexpected character ',' in enum `{}` variant",
+                            var.name
+                        )
                     }
-                    _ => panic!(
-                        "impl_match!: unexpected character '#' in enum `{}` variant",
-                        var.name
-                    ),
-                },
+                    item.group.extend([Punct(p)]);
+                    enm.push(var);
+                    var = Var::default();
+                }
                 _ => (),
             }
         }
@@ -575,7 +582,7 @@ impl Var {
 
 #[proc_macro]
 pub fn impl_match(input_ts: TokenStream) -> TokenStream {
-    // std::fs::write("target/debug/input_ts.json", format!("{}\n\n{0:#?}", input_ts)).unwrap();
+    // std::fs::write("target/debug/input_ts.log", format!("{}\n\n{0:#?}", input_ts)).unwrap();
 
     let mut input_it = input_ts.into_iter();
 
@@ -588,11 +595,36 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
         );
     }
 
-    let (mut methods, mset) = Meth::im_vec(take(&mut items[i["impl"]].group).into_iter());
+    let (methods, mset) = Meth::im_vec(std::mem::take(&mut items[i["impl"]].group).into_iter());
 
-    let mut enm = Var::vec(take(&mut items[i["enum"]].group).into_iter(), &mset);
+    let enm = Var::vec(&mut items[i["enum"]], &mset);
+    let enm_name = items[i["enum"]].ident.to_string();
+    let mut impl_group = TokenStream::new();
+    for mut m in methods {
+        impl_group.extend(m.prev_ts);
+        if let Some(ident) = m.ident {
+            let mut block_ts = TokenStream::new();
+            for var in enm.iter() {
+                block_ts.extend(TokenStream::from_str(&format!("{enm_name}::{} => ", var.name)));
+                block_ts.extend([Group(match var.methods.get(&ident.to_string()) {
+                    Some(gr) => gr.clone(),
+                    None => Gr::new(Brace, TokenStream::new()),
+                })]);
+            }
+            m.body.extend([Group(Gr::new(Brace, block_ts))]);
+            impl_group.extend([Group(Gr::new(Brace, m.body))]);
+        }
+    }
+    items[i["impl"]].group = impl_group;
 
     let mut res_ts = TokenStream::new();
+
+    for item in items {
+        res_ts.extend(item.prev_ts);
+        res_ts.extend([Group(Gr::new(Brace, item.group))]);
+    }
+
+    res_ts.extend(input_it);
 
     if std::env::var("M_ENUM_DBG").map_or(false, |v| &v != "0") {
         println!("\nM_ENUM_DBG - output to compiler input for impl_match:\n{}\n", res_ts);
