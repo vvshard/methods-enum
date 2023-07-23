@@ -10,25 +10,25 @@ enum State {
             'd' => self.set_state(State::Waiting),
             'q' => self.set_state(State::Exit),
             _ => self.set(),
-        }} ,
+        }},
     Waiting:
         set() { println!("Waiting: s - select / r - refund") }
         input_char(ch) { match ch { 
             's' => self.set_state(State::Dispense),
             'r' => self.set_state(State::Refunding),
             _ => self.set(),
-        }} ,
+        }},
     Dispense:
         set() { println!("Dispense: r - remove ") }
         input_char(ch) { match ch { 
             'r' => self.set_state(State::Ready),
             _ => self.set(),
-        }} ,
+        }},
     Refunding:
         set() { 
             println!("Refunding: refund of the deposit...");
             self.set_state(State::Ready);
-        } ,
+        },
     Exit:
         set() { println!("Exit: goodbye!") }
 }

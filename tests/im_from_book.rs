@@ -41,10 +41,10 @@ mod blog {
 
     /// doc State
     pub enum State {
-        Draft:
+        Draft: (_x)
             add_text(text) { self.content.push_str(text) }
             request_review() { self.state = State::PendingReview }
-            content() { "" }
+            content()  { "" }
         ,
         /// doc State::PendingReview
         PendingReview:
