@@ -45,11 +45,11 @@ mod blog {
             Post { state: State::Draft, content: String::new() }
         }
 
-        pub fn add_text(&mut self, text: &str) -> Result<&str, String>  { match self.state }
-        pub fn request_review(&mut self) -> Result<&State, String>      { match self.state }
-        pub fn reject(&mut self)                                        { match self.state }
-        pub fn approve(&mut self) -> Result<&State, String>             { match self.state }
-        pub fn content(&mut self) -> &str         { let mut x = ""; match self.state {}; x }
+        pub fn add_text(&mut self, text: &str) -> Result<&str, String>  ~{ match self.state }
+        pub fn request_review(&mut self) -> Result<&State, String>      ~{ match self.state }
+        pub fn reject(&mut self)                                        ~{ match self.state }
+        pub fn approve(&mut self) -> Result<&State, String>             ~{ match self.state }
+        pub fn content(&mut self) -> &str         ~{ let mut x = ""; match self.state {}; x }
 
         fn method_not_possible(&self, act: &str) -> String {
             format!("For State::{:?} method '{act}' is not possible", self.state)

@@ -495,19 +495,24 @@ impl Item {
                 (Start, Ident(id)) if id.to_string() == "fn" => m.prev_extend(Ident(id), Name),
                 (Name, Ident(id)) => {
                     m.ident = id.to_string();
-                    m.prev_extend(Ident(id), Out)
+                    m.prev_extend(Ident(id), Gt)
                 }
+                (Gt, Group(gr)) if gr.delimiter() == Brace => m.prev_extend(Group(gr), Start),
+                (Gt, Punct(p)) if ";#".contains(p.as_char()) => m.prev_extend(Punct(p), Start),
+                (Gt, Punct(p)) if p.as_char() == '~' => Out,
+                (Gt, tt) => m.prev_extend(tt, Gt),
                 (Out, Group(gr)) if gr.delimiter() == Brace => {
                     if m.found_match(&gr) {
                         mset.insert(m.ident.clone());
                         self.methods.push(mem::take(&mut m));
                     } else {
-                        m.prev_ts.extend([Group(gr)])
+                        m.prev_ts.extend([
+                            // Punct(proc_macro::Punct::new('~', Spacing::Alone)), // is a compiler error required here?
+                            Group(gr),
+                        ])
                     }
                     Start
                 }
-                (Out, Punct(p)) if ";#".contains(p.as_char()) => m.prev_extend(Punct(p), Start),
-                (Out, tt) => m.prev_extend(tt, Out),
                 (_, tt) => m.prev_extend(tt, Start),
             }
         }
