@@ -42,7 +42,7 @@ impl Attr {
                     ..Default::default()
                 }
             }
-            _ => panic!("Syntax error in attribute #[methods_enum::gen(?? "),
+            _ => panic!("#[gen]: Syntax error in attribute #[methods_enum::gen(?? "),
         };
         match [attr_it.next(), attr_it.next()] {
             [None, None] => attr,
@@ -53,7 +53,7 @@ impl Attr {
                 ..attr
             },
             _ => panic!(
-                "Syntax error in attribute #[methods_enum::gen({}:{}??..",
+                "#[gen]: Syntax error in attribute #[methods_enum::gen({}:{}??..",
                 attr.enum_name, attr.run_method
             ),
         }
@@ -240,8 +240,8 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
             gr.stream().into_iter()
         }
         m => panic!(
-            "SYNTAX ERROR: 
-        'this attribute must be set on block impl without treyds and generics': {m:?}"
+            "#[gen]: SYNTAX ERROR 
+'attribute #[gen] must be set on block impl without treyds and generics': {m:?}"
         ),
     };
 
