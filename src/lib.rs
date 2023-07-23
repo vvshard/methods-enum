@@ -21,7 +21,7 @@ use ParseStates::{Args, Gt, Minus, Name, Out, Start, Vis};
 struct Meth {
     ident: Option<proc_macro::Ident>,
     prev_ts: TokenStream,
-    pub_s: &'static str,
+    vis: TokenStream,
     args: TokenStream,
     params: String,
     typs: String,
@@ -135,9 +135,18 @@ impl Meth {
         let mut state = Start;
         for tt in iit {
             state = match (state, tt) {
-                (Start, Ident(id)) if id.to_string() == "pub" => m.prev_extend(Ident(id), Vis),
+                (Start, Ident(id)) if id.to_string() == "pub" => {
+                    m.vis.extend([Ident(id.clone())]);
+                    m.prev_extend(Ident(id), Vis)
+                }
+                (Vis, Group(gr)) if gr.delimiter() == Delimiter::Parenthesis => {
+                    m.vis.extend([Group(gr.clone())]);
+                    m.prev_extend(Group(gr), Vis)
+                }
                 (st @ (Start | Vis), Ident(id)) if id.to_string() == "fn" => {
-                    m.pub_s = if let Vis = st { "pub " } else { "" };
+                    if let Start = st {
+                        m.vis = TokenStream::new()
+                    };
                     m.prev_extend(Ident(id), Name)
                 }
                 (Name, Ident(id)) => {
@@ -272,7 +281,11 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     for m in methods {
         methods_ts.extend(m.prev_ts);
         if let Some(ident) = m.ident {
-            enum_doc.push_str(&format!("\n{}fn {ident}({})", m.pub_s, ts_to_doc(&m.args)));
+            enum_doc.push_str(&format!(
+                "\n{}fn {ident}({})",
+                (ts_to_doc(&m.vis) + " ").trim_start(),
+                ts_to_doc(&m.args)
+            ));
             let mut body_ts = TokenStream::new();
             let out = if m.out.is_empty() {
                 enum_doc.push_str(" {");
@@ -400,7 +413,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
 // endregion: gen
 
-// #####     #####     #####     #####     #####     #####     #####     #####
+//     #####     #####     #####     #####     #####     #####     #####     #####
 
 // region: region impl_match
 
@@ -469,14 +482,9 @@ impl Meth {
                 (Start, Ident(id)) if id.to_string() == "fn" => m.prev_extend(Ident(id), Name),
                 (Name, Ident(id)) => {
                     m.ident = Some(id.clone());
-                    m.prev_extend(Ident(id), Minus)
+                    m.prev_extend(Ident(id), Out)
                 }
-                (Minus, Punct(p)) if p.as_char() == '-' => m.prev_extend(Punct(p), Gt),
-                (Gt, Punct(p)) if p.as_char() == '>' => {
-                    m.out_span = Some(p.span());
-                    m.prev_extend(Punct(p), Out)
-                }
-                (Minus | Out, Group(gr)) if gr.delimiter() == Brace => {
+                (Out, Group(gr)) if gr.delimiter() == Brace => {
                     'mtch: {
                         let mut body_it = gr.stream().into_iter();
                         if matches!(body_it.next(), Some(Ident(id)) if id.to_string() == "match") {
@@ -496,8 +504,7 @@ impl Meth {
                     }
                     Start
                 }
-                (st @ (Minus | Out), tt) => m.prev_extend(tt, st),
-
+                (Out, tt) => m.prev_extend(tt, Out),
                 (_, tt) => m.prev_extend(tt, Start),
             }
         }

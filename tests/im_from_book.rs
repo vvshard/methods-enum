@@ -57,5 +57,5 @@ mod blog {
         Published
             -content() { &self.content }
     }
-    }
+    } //impl_match!
 }
