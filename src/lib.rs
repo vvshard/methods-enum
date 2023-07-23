@@ -432,18 +432,18 @@ impl Item {
 
     fn vec(iit: &mut IntoIter) -> (Vec<Item>, HashMap<&'static str, usize>) {
         let mut items = Vec::new();
-        let mut i: HashMap<&'static str, usize> = HashMap::from([("impl", 2), ("enum", 2)]);
+        let mut i: HashMap<&'static str, usize> = HashMap::from([("impl", 9999), ("enum", 9999)]);
         let mut kind = "";
         let mut item = Item::default();
         let mut state = Start;
         for tt in iit {
             state = match (state, tt) {
                 (Start, Ident(id)) => match (&id.to_string()[..], i["impl"], i["enum"]) {
-                    ("impl", 2, _) => {
+                    ("impl", 9999, _) => {
                         kind = "impl";
                         item.prev_extend(Ident(id), Name)
                     }
-                    ("enum", _, 2) => {
+                    ("enum", _, 9999) => {
                         kind = "enum";
                         item.prev_extend(Ident(id), Name)
                     }
@@ -458,13 +458,21 @@ impl Item {
                     i.insert(kind, items.len());
                     items.push(item);
                     if items.len() == 2 {
-                        break;
+                        return (items, i);
                     }
                     item = Item::default();
                     Start
                 }
                 (_, Punct(p)) if ";#".contains(p.as_char()) => item.prev_extend(Punct(p), Start),
                 (st, tt) => item.prev_extend(tt, st),
+            }
+        }
+        item.ident = String::new();
+        items.push(item);
+        for kind in ["impl", "enum"] {
+            if i[kind] == 9999 {
+                i.insert(kind, items.len());
+                items.push(Item::default());
             }
         }
         (items, i)
@@ -549,20 +557,23 @@ struct Var {
     methods: HashMap<String, Gr>,
 }
 impl Var {
-    fn vec(item: &mut Item, mset: &HashSet<String>, enm_name: &String) -> Vec<Var> {
+    fn vec(item: &mut Item, mset: &HashSet<String>, enm_n: &String, imp_n: &String) -> Vec<Var> {
         let mut iit = std::mem::take(&mut item.group).into_iter();
-        let mut enm = Vec::new();
+        let mut enm: Vec<Var> = Vec::new();
         let mut var = Var::default();
         while let Some(tt) = iit.next() {
             match tt {
-                Punct(p) if p.as_char() == '#' => match (iit.next(), &var.name[..]) {
-                    (Some(Group(gr)), "") if gr.delimiter() == Delimiter::Bracket => {
+                Punct(p) if p.as_char() == '#' && var.name == "" => match iit.next() {
+                    Some(Group(gr)) if gr.delimiter() == Delimiter::Bracket => {
                         item.group.extend([Punct(p), Group(gr)]);
                     }
-                    _ => panic!(
-                        "impl_match!: unexpected character '#' in `enum {enm_name}::{}`",
-                        var.name
-                    ),
+                    Some(Punct(p1)) if p.as_char() == '!' => match iit.next() {
+                        Some(Group(gr)) if gr.delimiter() == Delimiter::Bracket => {
+                            item.group.extend([Punct(p), Punct(p1), Group(gr)]);
+                        }
+                        _ => (),
+                    },
+                    _ => (),
                 },
                 Ident(id) => {
                     let name = id.to_string();
@@ -570,12 +581,36 @@ impl Var {
                         item.group.extend([Ident(id)]);
                         var.name = name;
                     } else {
+                        // method name
                         if !mset.contains(&name) {
-                            panic!(
-                                "impl_match!: invalid method name `{}` in `enum {enm_name}::{}`",
-                                name, var.name
-                            );
-                        }
+                            if imp_n.is_empty() {
+                                panic!(
+                                    "impl_match!: invalid method `{name}` in `enum {enm_n}::{}`:
+there is no `impl` block in the macro scope",
+                                    var.name
+                                )
+                            }
+                            let mut free_m: Vec<String> = mset
+                                .difference(&HashSet::from_iter(var.methods.keys().cloned()))
+                                .cloned()
+                                .collect();
+                            free_m.sort();
+                            if free_m.is_empty() {
+                                panic!(
+                                    "impl_match!: invalid method `{name}` in `enum {enm_n}::{}`:
+`impl {imp_n}` contains no freely methods to implement `match{{...}}` from `enum {enm_n}::{0}`",
+                                    var.name
+                                )
+                            } else {
+                                panic!(
+                                    "impl_match!: invalid method name `{name}` in `enum {enm_n}::{}`
+- expected{}: `{}`",
+                                    var.name,
+                                    if free_m.len() == 1 { "" } else { " one of" },
+                                    free_m.join("`|`")
+                                )
+                            }
+                        };
                         match (iit.next(), iit.next()) {
                             (Some(Group(g_arg)), Some(Group(g_block)))
                                 if g_arg.delimiter() == Delimiter::Parenthesis
@@ -583,14 +618,15 @@ impl Var {
                             {
                                 if var.methods.insert(name.clone(), g_block).is_some() {
                                     panic!(
-                                        "impl_match!: {} `{}` in `enum {enm_name}::{}`",
-                                        "repetition of method name", name, var.name
+                                        "impl_match!: {} `{name}` in `enum {enm_n}::{}`",
+                                        "repetition of method name", var.name
                                     )
                                 }
                             }
                             _ => panic!(
-                                "impl_match!: {} `{}` in `enum {enm_name}::{}`",
-                                "invalid syntax in method", name, var.name
+                                "impl_match!: invalid syntax in method `{}` in `enum {enm_n}::{}`
+- expected: `(...) {{...}}`",
+                                name, var.name
                             ),
                         }
                     }
@@ -604,15 +640,11 @@ impl Var {
                     }
                 }
                 Punct(p) if p.as_char() == ',' => {
-                    if var.name.is_empty() {
-                        panic!(
-                            "impl_match!: unexpected character ',' in `enum {enm_name}::{}`",
-                            var.name
-                        )
+                    if !var.name.is_empty() {
+                        item.group.extend([Punct(p)]);
+                        enm.push(var);
+                        var = Var::default();
                     }
-                    item.group.extend([Punct(p)]);
-                    enm.push(var);
-                    var = Var::default();
                 }
                 _ => (),
             }
@@ -631,28 +663,23 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     let mut input_it = input_ts.into_iter();
 
     let (mut items, i) = Item::vec(&mut input_it);
-    if items.len() < 2 {
-        panic!(
-            "impl_match!: {}",
-            "Block impl_match{{}} must contain at least one impl{{}}-block and one enum{{}}-block"
-        );
-    }
     let (methods, mset) = MethIM::vec(std::mem::take(&mut items[i["impl"]].group));
-    let enm_name = items[i["enum"]].ident.to_string();
-    let enm = Var::vec(&mut items[i["enum"]], &mset, &enm_name);
+    let enm_n = items[i["enum"]].ident.clone();
+    let impl_n = items[i["impl"]].ident.clone();
+    let mut enm = Var::vec(&mut items[i["enum"]], &mset, &enm_n, &impl_n);
     let mut impl_group = TokenStream::new();
     for mut m in methods {
         impl_group.extend(m.prev_ts);
         if !m.ident.is_empty() {
             let mut block_ts = TokenStream::new();
-            for var in enm.iter() {
-                block_ts.extend(TokenStream::from_str(&format!("{enm_name}::{}", var.name)));
+            for var in enm.iter_mut() {
+                block_ts.extend(TokenStream::from_str(&format!("{enm_n}::{}", var.name)));
                 if var.fields.is_some() {
                     block_ts.extend([Group(var.fields.clone().unwrap())]);
                 }
                 block_ts.extend(TokenStream::from_str("=>"));
-                block_ts.extend([Group(match var.methods.get(&m.ident) {
-                    Some(gr) => gr.clone(),
+                block_ts.extend([Group(match var.methods.get_mut(&m.ident) {
+                    Some(gr) => std::mem::replace(gr, Gr::new(Brace, TokenStream::new())),
                     None => Gr::new(Brace, TokenStream::new()),
                 })]);
             }
@@ -666,7 +693,9 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     let mut res_ts = TokenStream::new();
     for item in items {
         res_ts.extend(item.prev_ts);
-        res_ts.extend([Group(Gr::new(Brace, item.group))]);
+        if !item.ident.is_empty() {
+            res_ts.extend([Group(Gr::new(Brace, item.group))]);
+        }
     }
     res_ts.extend(input_it);
 
