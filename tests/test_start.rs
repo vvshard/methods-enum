@@ -24,11 +24,12 @@ fn test_main() {
     impl_match::state::from_book::with_arg_ref_mut::main();
     impl_match::state::from_book::task_and_str_and_result::main();
     impl_match::state::from_book::str_and_result::main();
-    impl_match::state::from_book::move_self::main();
+    impl_match::state::from_book::move_self_2_impl::main();
+    impl_match::state::from_book::move_self_2_macro_with_one_enum::main();
     impl_match::state::from_book::two_result::main();
 
     impl_match::state::state_machine::test();
-    
+
 }
 
 #[ignore]
@@ -36,5 +37,6 @@ fn test_main() {
 fn main_t(){
     println!("---- main_t() ----");
     // gen::state::state_machine::main();
-    impl_match::state::state_machine::main();
+    // impl_match::state::state_machine::main();
+
 }
