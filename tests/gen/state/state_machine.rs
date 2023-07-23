@@ -56,6 +56,7 @@ impl State {
     }
 }
 
+#[allow(unused)]
 pub fn main() {
     let mut machine = State::Ready;
     machine.set();

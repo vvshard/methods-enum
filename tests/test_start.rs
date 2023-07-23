@@ -1,4 +1,4 @@
-#![allow(unused)]
+// #![allow(unused)]
 
 mod impl_match;
 mod gen;
@@ -22,7 +22,7 @@ fn test_main() {
     impl_match::state::from_book::first::main();
     impl_match::state::from_book::without_return::main();
     impl_match::state::from_book::with_arg_ref_mut::main();
-    impl_match::state::from_book::task_and_str_and_result::main();
+    impl_match::state::from_book::task_and_enum_field_and_str_and_result::main();
     impl_match::state::from_book::str_and_result::main();
     impl_match::state::from_book::move_self_2_impl::main();
     impl_match::state::from_book::move_self_2_macro_with_one_enum::main();

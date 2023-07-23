@@ -43,6 +43,7 @@ impl State {
 }
 } // impl_match!
 
+#[allow(unused)]
 pub fn main() {
     let mut machine = State::Ready;
     machine.set();

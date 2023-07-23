@@ -5,6 +5,7 @@ pub fn main() {
     assert_eq!("", post.content());
 
     assert_eq!("I ate a salad for lunch today", post.request_review().approve().content());
+
 }
 
 mod blog {
@@ -15,6 +16,7 @@ mod blog {
     }
 
     methods_enum::impl_match!{
+
     impl Post {
         pub fn request_review(mut self) -> Post     { match self.state {}; self }
         pub fn approve(mut self) -> Post            { match self.state {}; self }
@@ -24,9 +26,11 @@ mod blog {
         PendingReview: approve() { self.state = State::Published },
         Published
     }
+
     } // impl_match!
 
     methods_enum::impl_match!{
+
     impl Post {
         pub fn add_text(&mut self, text: &str)      { match self.state }
         pub fn content(&mut self) -> &str           { let mut x = ""; match self.state {}; x }
@@ -41,5 +45,20 @@ mod blog {
         PendingReview,
         Published: content() { x = &self.content }
     }
+
     } // impl_match!
+
+
+
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    #[allow(unused)]
+    mod bb{
+        use super::*;
+        fn a(){
+            State::Draft;
+            Post::request_review;
+        }
+    }
+
 }

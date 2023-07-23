@@ -440,22 +440,19 @@ impl Item {
         let mut items = Vec::new();
         let mut mset: HashSet<String> = HashSet::new();
         let mut impl_n = String::new();
-        let mut is_enum = false;
         let mut item = Item::default();
         let mut gr_wait = false;
         for tt in ts {
             gr_wait = match (gr_wait, tt) {
-                (false, Punct(p)) if !is_enum && p.as_char() == '@' => {
+                (false, Punct(p)) if p.as_char() == '@' => {
                     item.it_enum = true;
-                    is_enum = true;
                     item.no_def = true;
                     true
                 }
-                (false, Ident(id)) => match (&id.to_string()[..], is_enum) {
-                    ("impl", _) => item.prev_extend(Ident(id), true),
-                    ("enum", false) => {
+                (false, Ident(id)) => match &id.to_string()[..] {
+                    "impl" => item.prev_extend(Ident(id), true),
+                    "enum" => {
                         item.it_enum = true;
-                        is_enum = true;
                         item.prev_extend(Ident(id), true)
                     }
                     _ => item.prev_extend(Ident(id), false),
@@ -661,8 +658,10 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     // std::fs::write("target/debug/input_ts.log", format!("{}\n\n{0:#?}", input_ts)).unwrap();
 
     let (mut items, mset) = Item::vec(input_ts);
-    let opt_enm_item = items.iter_mut().find(|it| it.it_enum);
-    let (mut enm, enm_n) = opt_enm_item.map_or((Vec::new(), String::new()), |it| {
+    let opt_enm = (items.iter().enumerate().find_map(|(i, it)| it.no_def.then(|| i)))
+        .or_else(|| items.iter().enumerate().find_map(|(i, it)| it.it_enum.then(|| i)));
+    let (mut enm, enm_n) = opt_enm.map_or((Vec::new(), String::new()), |i| {
+        let it = items.get_mut(i).unwrap();
         let enm_n = it.ident.clone();
         (Var::vec(it, &mset, &enm_n), enm_n)
     });
