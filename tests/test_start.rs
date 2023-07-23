@@ -38,6 +38,8 @@ fn test_main() {
 
     impl_match::state::state_machine::test();
 
+    impl_match::polymorphism::main();
+
     // endregion: impl_match
 }
 
