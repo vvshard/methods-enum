@@ -463,6 +463,7 @@ impl Item {
                     item = Item::default();
                     Start
                 }
+                (_, Punct(p)) if ";#".contains(p.as_char()) => item.prev_extend(Punct(p), Start),
                 (st, tt) => item.prev_extend(tt, st),
             }
         }
@@ -472,14 +473,40 @@ impl Item {
 
 #[derive(Default)]
 struct MethIM {
-    ident: Option<proc_macro::Ident>,
+    ident: String,
     prev_ts: TokenStream,
     body: TokenStream,
+    after: TokenStream,
 }
 impl MethIM {
     fn prev_extend(&mut self, tt: proc_macro::TokenTree, new_st: ParseStates) -> ParseStates {
         self.prev_ts.extend([tt]);
         new_st
+    }
+
+    fn found_match(&mut self, body: &Gr) -> bool {
+        self.body = TokenStream::new();
+        let iit = body.stream().into_iter();
+        let mut state = Start;
+        for tt in iit {
+            match (&mut state, tt) {
+                (Start, Ident(id)) if id.to_string() == "match" => {
+                    self.body.extend([Ident(id)]);
+                    state = Name
+                }
+                (Name, Group(gr)) if gr.delimiter() == Brace => {
+                    if gr.stream().is_empty() {
+                        state = Out
+                    } else {
+                        self.body.extend([Group(gr)]);
+                        state = Start
+                    }
+                }
+                (Out, tt) => self.after.extend([tt]),
+                (_, tt) => self.body.extend([tt]),
+            }
+        }
+        !matches!(state, Start)
     }
 
     fn vec(iit: IntoIter) -> (Vec<MethIM>, HashSet<String>) {
@@ -491,32 +518,25 @@ impl MethIM {
             state = match (state, tt) {
                 (Start, Ident(id)) if id.to_string() == "fn" => m.prev_extend(Ident(id), Name),
                 (Name, Ident(id)) => {
-                    m.ident = Some(id.clone());
+                    m.ident = id.to_string();
                     m.prev_extend(Ident(id), Out)
                 }
                 (Out, Group(gr)) if gr.delimiter() == Brace => {
-                    'mtch: {
-                        let mut body_it = gr.stream().into_iter();
-                        if matches!(body_it.next(), Some(Ident(id)) if id.to_string() == "match") {
-                            if body_it.all(|t| !matches!(t, Group(gr) if gr.delimiter() == Brace ))
-                            {
-                                m.body = gr.stream();
-                                mset.insert(m.ident.clone().unwrap().to_string());
-                                methods.push(m);
-                                m = MethIM::default();
-                                break 'mtch;
-                            }
-                        }
-                        m.prev_ts.extend([Group(gr)]);
+                    if m.found_match(&gr) {
+                        mset.insert(m.ident.clone());
+                        methods.push(m);
+                        m = MethIM::default();
+                    } else {
+                        m.prev_ts.extend([Group(gr)])
                     }
                     Start
                 }
-                (Out, Punct(p)) if p.as_char() == ';' => m.prev_extend(Punct(p), Start),
+                (Out, Punct(p)) if ";#".contains(p.as_char()) => m.prev_extend(Punct(p), Start),
                 (Out, tt) => m.prev_extend(tt, Out),
                 (_, tt) => m.prev_extend(tt, Start),
             }
         }
-        m.ident = None;
+        m.ident = String::new();
         methods.push(m);
         (methods, mset)
     }
@@ -615,16 +635,17 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     let mut impl_group = TokenStream::new();
     for mut m in methods {
         impl_group.extend(m.prev_ts);
-        if let Some(ident) = m.ident {
+        if !m.ident.is_empty() {
             let mut block_ts = TokenStream::new();
             for var in enm.iter() {
                 block_ts.extend(TokenStream::from_str(&format!("{enm_name}::{} => ", var.name)));
-                block_ts.extend([Group(match var.methods.get(&ident.to_string()) {
+                block_ts.extend([Group(match var.methods.get(&m.ident) {
                     Some(gr) => gr.clone(),
                     None => Gr::new(Brace, TokenStream::new()),
                 })]);
             }
             m.body.extend([Group(Gr::new(Brace, block_ts))]);
+            m.body.extend(m.after);
             impl_group.extend([Group(Gr::new(Brace, m.body))]);
         }
     }
