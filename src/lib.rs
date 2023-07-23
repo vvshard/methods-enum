@@ -545,6 +545,7 @@ impl MethIM {
 #[derive(Default)]
 struct Var {
     name: String,
+    fields: Option<Gr>,
     methods: HashMap<String, Gr>,
 }
 impl Var {
@@ -594,6 +595,14 @@ impl Var {
                         }
                     }
                 }
+                Group(gr) if gr.delimiter() != Delimiter::Bracket && var.methods.is_empty() => {
+                    if var.fields.is_none() {
+                        item.group.extend([Group(gr)]);
+                        var.fields = Some(Gr::new(Brace, TokenStream::new()));
+                    } else {
+                        var.fields = Some(gr);
+                    }
+                }
                 Punct(p) if p.as_char() == ',' => {
                     if var.name.is_empty() {
                         panic!(
@@ -637,7 +646,11 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
         if !m.ident.is_empty() {
             let mut block_ts = TokenStream::new();
             for var in enm.iter() {
-                block_ts.extend(TokenStream::from_str(&format!("{enm_name}::{} => ", var.name)));
+                block_ts.extend(TokenStream::from_str(&format!("{enm_name}::{}", var.name)));
+                if var.fields.is_some() {
+                    block_ts.extend([Group(var.fields.clone().unwrap())]);
+                }
+                block_ts.extend(TokenStream::from_str("=>"));
                 block_ts.extend([Group(match var.methods.get(&m.ident) {
                     Some(gr) => gr.clone(),
                     None => Gr::new(Brace, TokenStream::new()),
