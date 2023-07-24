@@ -539,6 +539,10 @@ impl MethIM {
                     self.body.extend(once(Ident(id)));
                     found = true;
                 }
+                (true, Punct(p)) if p.as_char() == ';' => {
+                    self.tail.extend(once(Punct(p)).chain(iit));
+                    return true;
+                }
                 (true, Group(gr)) if gr.delimiter() == Brace => {
                     if gr.stream().is_empty() {
                         self.tail.extend(iit);

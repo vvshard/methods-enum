@@ -18,8 +18,8 @@ mod blog {
     methods_enum::impl_match!{
 
     impl Post {
-        pub fn request_review(mut self) -> Post     ~{ match self.state {}; self }
-        pub fn approve(mut self) -> Post            ~{ match self.state {}; self }
+        pub fn request_review(mut self) -> Post     ~{ match self.state; self }
+        pub fn approve(mut self) -> Post            ~{ match self.state; self }
     }
     enum State {
         Draft: request_review() { self.state = State::PendingReview },
@@ -33,7 +33,7 @@ mod blog {
 
     impl Post {
         pub fn add_text(&mut self, text: &str)      ~{ match self.state }
-        pub fn content(&mut self) -> &str           ~{ let mut x = ""; match self.state {}; x }
+        pub fn content(&mut self) -> &str           ~{ let mut x = ""; match self.state; x }
 
         pub fn new() -> Post {
             Post { state: State::Draft, content: String::new() }

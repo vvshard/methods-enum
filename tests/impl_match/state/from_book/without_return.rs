@@ -22,7 +22,7 @@ mod blog {
         pub fn add_text(&mut self, text: &str)    ~{ match self.state }
         pub fn request_review(&mut self)          ~{ match self.state }
         pub fn approve(&mut self)                 ~{ match self.state }
-        pub fn content(&mut self) -> &str         ~{ let mut x = ""; match self.state {}; x }
+        pub fn content(&mut self) -> &str         ~{ let mut x = ""; match self.state; x }
 
         pub fn new() -> Post {
             Post { state: State::Draft, content: String::new() }
