@@ -599,13 +599,13 @@ impl Var {
                                 .collect();
                             free_m.sort();
                             if free_m.is_empty() {
-                                panic!(
+                                println!(
                                     "impl_match!: invalid method `{name}` in `enum {enm_n}::{}`:
 `impl(-s)` contains no freely methods to implement `match{{...}}` from `enum {enm_n}::{0}`",
                                     var.name
                                 )
                             } else {
-                                panic!(
+                                println!(
                                     "impl_match!: invalid method name `{name}` in `enum {enm_n}::{}`
 - expected{}: `{}`",
                                     var.name,
@@ -624,13 +624,13 @@ impl Var {
                                     .insert(name.clone(), (var.fields.clone(), g_block))
                                     .is_some()
                                 {
-                                    panic!(
+                                    println!(
                                         "impl_match!: {} `{name}` in `enum {enm_n}::{}`",
                                         "repetition of method name", var.name
                                     )
                                 }
                             }
-                            _ => panic!(
+                            _ => println!(
                                 "impl_match!: invalid syntax in method `{}` in `enum {enm_n}::{}`
 - expected: `(...) {{...}}`",
                                 name, var.name

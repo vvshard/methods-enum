@@ -189,13 +189,18 @@ The macro duplicates the output for the compiler in the doc-comments. Therefore,
 
 ![enum popup: bodies](https://github.com/vvshard/methods-enum/raw/master/doc/img_0_2/UsageExample_2.png)
 
-## Syntax for calling a macro for more than one type of return values from methods:
-
-**`#[methods_enum::gen(`*EnumName* `, ` *handler_name* `, ` *OutName*`]`**
+## Syntax for calling a macro
+### For at most one return type from methods
+**`#[methods_enum::gen(`*EnumName* `, ` *handler_name*]`**
 
 where:
 - ***EnumName***: The name of the automatically generated enum.
 - ***handler_name***: Handler method name
+### For more than one return type from methods
+
+**`#[methods_enum::gen(`*EnumName* `, ` *handler_name* `, ` *OutName*`]`**
+
+where:
 - ***OutName***: The name of an automatically generated enum with variants from the return types.
 
 ## Links
