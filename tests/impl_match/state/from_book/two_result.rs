@@ -36,7 +36,7 @@ mod blog {
 
         pub fn add_text(&mut self, text: &str) -> Result<&State, String>    ~{ match self.state }
         pub fn request_review(&mut self) -> Result<&State, String>          ~{ match self.state }
-        pub fn reject(&mut self)                                            ~{ match self.state }
+        pub fn reject(&mut self)                                         ~{ match self.state {} }
         pub fn approve(&mut self) -> Result<&State, String>                 ~{ match self.state }
         pub fn content(&mut self) -> Result<&str, String>                   ~{ match self.state }
 

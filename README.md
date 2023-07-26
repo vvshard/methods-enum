@@ -39,10 +39,10 @@ mod blog {
     methods_enum::impl_match! {
 
     impl Post {
-        pub fn add_text(&mut self, text: &str)  ~{ match self.state }
-        pub fn request_review(&mut self)        ~{ match self.state }
-        pub fn approve(&mut self)               ~{ match self.state }
-        pub fn content(&mut self) -> &str       ~{ let mut x = ""; match self.state; x }
+        pub fn add_text(&mut self, text: &str)  ~{ match self.state {} }
+        pub fn request_review(&mut self)        ~{ match self.state {} }
+        pub fn approve(&mut self)               ~{ match self.state {} }
+        pub fn content(&mut self) -> &str       ~{ match self.state { "" } }
 
         pub fn new() -> Post {
             Post { state: State::Draft, content: String::new() }
@@ -53,7 +53,7 @@ mod blog {
         Draft:          add_text(text)   { self.content.push_str(text) }
                         request_review() { self.state = State::PendingReview },
         PendingReview:  approve()        { self.state = State::Published },
-        Published:      content()        { x = &self.content }
+        Published:      content()        { &self.content }
     }
 
     } // <-- impl_match!
@@ -79,17 +79,17 @@ methods_enum::impl_match! {
 
 enum Shape {
     Circle(f64): (r)
-        zoom(scale) { Shape::Circle(r * scale) }
-        to_rect()   { *self = Shape::Rectangle { width: r * 2., height: r * 2. } }
-        fmt(f)      { write!(f, "Circle(R: {r:.1})") }
+        zoom(scale)    { Shape::Circle(r * scale) }
+        to_rect()      { *self = Shape::Rectangle { width: r * 2., height: r * 2. } }
+        fmt(f) Display { write!(f, "Circle(R: {r:.1})") }
     ,
     Rectangle { width: f64, height: f64 }: { width: w, height }
-        zoom(scale) { Shape::Rectangle { width: w * scale, height: height * scale } }
-        fmt(f)      { write!(f, "Rectangle(W: {w:.1}, H: {height:.1})") }
+        zoom(scale)    { Shape::Rectangle { width: w * scale, height: height * scale } }
+        fmt(f) Display { write!(f, "Rectangle(W: {w:.1}, H: {height:.1})") }
 }
 impl Shape {
     fn zoom(self, scale: f64) -> Shape              ~{ match self }
-    fn to_rect(&mut self)                           ~{ match *self }
+    fn to_rect(&mut self)                           ~{ match *self {} }
 }
 
 use std::fmt::{Display, Formatter, Result};

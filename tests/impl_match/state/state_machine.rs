@@ -32,7 +32,7 @@ enum State {
 }
 impl State {
     pub fn set(&mut self)                       ~{ match *self }
-    pub fn input_char(&mut self, ch: char)      ~{ match *self }
+    pub fn input_char(&mut self, ch: char)      ~{ match *self {} }
 
     fn set_state(&mut self, new_state: State) {
         *self = new_state;

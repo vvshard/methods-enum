@@ -2,9 +2,9 @@
 //! [crate documentation](crate)
 
 use core::str::FromStr;
-use proc_macro::Group as Gr;
-use proc_macro::TokenTree::{Group, Ident, Punct};
+use proc_macro::TokenTree::{Group, Ident, Literal, Punct};
 use proc_macro::{token_stream::IntoIter, Delimiter, Delimiter::Brace, Spacing, Span, TokenStream};
+use proc_macro::{Group as Gr, Ident as Idn};
 use std::iter::once;
 
 enum ParseStates {
@@ -23,10 +23,10 @@ use ParseStates::{Args, Gt, Minus, Name, Out, Start, Vis};
 #[derive(Default)]
 struct Attr {
     enum_name: String,
-    enum_ident: Option<proc_macro::Ident>,
+    enum_ident: Option<Idn>,
     run_method: String,
     drv_dbg: bool,
-    out_ident: Option<proc_macro::Ident>,
+    out_ident: Option<Idn>,
     out_dbg: bool,
     strict_types: bool,
 }
@@ -63,7 +63,7 @@ impl Attr {
 
 #[derive(Default)]
 struct Meth {
-    ident: Option<proc_macro::Ident>,
+    ident: Option<Idn>,
     prev_ts: TokenStream,
     vis: TokenStream,
     args: TokenStream,
@@ -233,7 +233,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     let mut item_ts = TokenStream::from_iter(
         item_it.by_ref().take_while(|tt| !matches!(tt, Ident(id) if id.to_string() == "impl")),
     );
-    item_ts.extend(once(Ident(proc_macro::Ident::new("impl", Span::call_site()))));
+    item_ts.extend(once(Ident(Idn::new("impl", Span::call_site()))));
 
     let mut block_it = match [item_it.next(), item_it.next(), item_it.next()] {
         [Some(Ident(item_n)), Some(Group(gr)), None] if gr.delimiter() == Brace => {
@@ -376,7 +376,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
         );
         let mut lftm = "";
         for (name, mut out, span) in outs {
-            enum_ts.extend(once(Ident(proc_macro::Ident::new(&name, span))));
+            enum_ts.extend(once(Ident(Idn::new(&name, span))));
             stype.push_str(&format!("{indent}{out_ident}::{name}(..) => \"{name}({out})\","));
             if out.contains('&') {
                 lftm = "<'a>";
@@ -419,7 +419,8 @@ use std::mem;
 
 #[derive(Default)]
 struct Item {
-    ident: String,
+    name: String,
+    ident: Option<Idn>,
     it_enum: bool,
     no_def: bool,
     prev_ts: TokenStream,
@@ -427,62 +428,78 @@ struct Item {
     methods: Vec<MethIM>,
 }
 impl Item {
-    fn prev_extend(&mut self, tt: proc_macro::TokenTree, gr_wait: bool) -> bool {
+    fn prev_extend(&mut self, tt: proc_macro::TokenTree, new_state: ParseStates) -> ParseStates {
         if !self.no_def {
             self.prev_ts.extend(once(tt))
         }
-        gr_wait
+        new_state
     }
 
-    fn vec(ts: TokenStream) -> (Vec<Item>, HashSet<String>) {
+    fn vec(ts: TokenStream) -> (Vec<Item>, HashSet<String>, i32) {
         let mut items = Vec::new();
         let mut mset: HashSet<String> = HashSet::new();
+        let mut flags = 0;
         let mut impl_n = String::new();
         let mut item = Item::default();
-        let mut gr_wait = false;
+        let mut state = Args;
         for tt in ts {
-            gr_wait = match (gr_wait, tt) {
-                (false, Punct(p)) if p.as_char() == '@' => {
+            state = match (state, tt) {
+                (Args, Literal(lt)) => {
+                    flags = lt.to_string().parse().unwrap_or(0);
+                    Start
+                }
+                (Start | Args, Punct(p)) if p.as_char() == '@' => {
                     item.it_enum = true;
                     item.no_def = true;
-                    true
+                    Gt
                 }
-                (false, Ident(id)) => match &id.to_string()[..] {
-                    "impl" => item.prev_extend(Ident(id), true),
+                (Start | Args, Ident(id)) => match &id.to_string()[..] {
+                    "impl" => item.prev_extend(Ident(id), Gt),
                     "enum" => {
                         item.it_enum = true;
-                        item.prev_extend(Ident(id), true)
+                        item.prev_extend(Ident(id), Gt)
                     }
-                    _ => item.prev_extend(Ident(id), false),
+                    _ => item.prev_extend(Ident(id), Start),
                 },
-                (true, Ident(id)) => {
-                    item.ident = id.to_string();
-                    item.prev_extend(Ident(id), true)
+                (Gt, Ident(id)) if id.to_string() == "for" => item.prev_extend(Ident(id), Out),
+                (st @ (Gt | Out), Ident(id)) => {
+                    match st {
+                        Gt => item.ident = Some(id.clone()),
+                        _ => item.name = id.to_string(),
+                    }
+                    item.prev_extend(Ident(id), st)
                 }
-                (true, Group(gr)) if gr.delimiter() == Brace => {
+                (Gt | Out, Group(gr)) if gr.delimiter() == Brace => {
                     if item.it_enum {
                         item.group = gr.stream();
+                        item.name =
+                            item.ident.as_ref().map_or_else(|| String::new(), |id| id.to_string());
                         items.push(mem::take(&mut item));
                     } else {
-                        if impl_n.is_empty() || impl_n == item.ident {
+                        if item.name.is_empty() {
+                            item.name =
+                                item.ident.map_or_else(|| String::new(), |id| id.to_string());
+                            item.ident = None;
+                        }
+                        if impl_n.is_empty() || impl_n == item.name {
                             if impl_n.is_empty() {
-                                impl_n = item.ident.clone();
+                                impl_n = item.name.clone();
                             }
                             item.fill_methods(gr.stream(), &mut mset);
                             items.push(mem::take(&mut item));
                         } else {
-                            item.ident = String::new();
+                            item.name = String::new();
                             item.prev_ts.extend(once(Group(gr)));
                         }
                     }
-                    false
+                    Start
                 }
                 (gw, tt) => item.prev_extend(tt, gw),
             }
         }
-        item.ident = String::new();
+        item.name = String::new();
         items.push(item);
-        (items, mset)
+        (items, mset, flags)
     }
 
     fn fill_methods(&mut self, ts: TokenStream, mset: &mut HashSet<String>) {
@@ -492,7 +509,7 @@ impl Item {
             state = match (state, tt) {
                 (Start, Ident(id)) if id.to_string() == "fn" => m.prev_extend(Ident(id), Name),
                 (Name, Ident(id)) => {
-                    m.ident = id.to_string();
+                    m.name = self.ident.as_ref().map_or(id.to_string(), |t| format!("{id}() {t}"));
                     m.prev_extend(Ident(id), Gt)
                 }
                 (Gt, Group(gr)) if gr.delimiter() == Brace => m.prev_extend(Group(gr), Start),
@@ -501,7 +518,7 @@ impl Item {
                 (Gt, tt) => m.prev_extend(tt, Gt),
                 (Out, Group(gr)) if gr.delimiter() == Brace => {
                     if m.found_match(&gr) {
-                        mset.insert(m.ident.clone());
+                        mset.insert(m.name.clone());
                         self.methods.push(mem::take(&mut m));
                     } else {
                         m.prev_ts.extend(once(Group(gr)))
@@ -511,16 +528,17 @@ impl Item {
                 (_, tt) => m.prev_extend(tt, Start),
             }
         }
-        m.ident = String::new();
+        m.name = String::new();
         self.methods.push(m);
     }
 }
 
 #[derive(Default)]
 struct MethIM {
-    ident: String,
+    name: String,
     prev_ts: TokenStream,
     body: TokenStream,
+    dflt_arm: Option<Gr>,
     tail: TokenStream,
 }
 impl MethIM {
@@ -544,12 +562,27 @@ impl MethIM {
                     return true;
                 }
                 (true, Group(gr)) if gr.delimiter() == Brace => {
-                    if gr.stream().is_empty() {
-                        self.tail.extend(iit);
-                        return true;
-                    } else {
+                    let mut isfat_arrow = false;
+                    let mut gr_iit = gr.stream().into_iter();
+                    while let Some(tt) = gr_iit.next() {
+                        if let Punct(p) = tt {
+                            if p.as_char() == '=' {
+                                if let Some(Punct(gt)) = gr_iit.next() {
+                                    if gt.as_char() == '>' {
+                                        isfat_arrow = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if isfat_arrow {
                         self.body.extend(once(Group(gr)));
                         found = false;
+                    } else {
+                        self.dflt_arm = Some(gr);
+                        self.tail.extend(iit);
+                        return true;
                     }
                 }
                 (_, tt) => self.body.extend(once(tt)),
@@ -559,108 +592,167 @@ impl MethIM {
     }
 }
 
+struct VarMeth {
+    ident: Idn,
+    fields: Option<Gr>,
+    block: Gr,
+    opt_trait: Option<Idn>,
+}
+impl VarMeth {
+    fn parse(
+        ident: Idn,
+        iit: &mut IntoIter,
+        var: &Var,
+        enm_n: &str,
+        mset: &HashSet<String>,
+    ) -> Result<(VarMeth, String), String> {
+        let (block, opt_trait) = match iit.next() {
+            Some(Group(g_arg)) if g_arg.delimiter() == Delimiter::Parenthesis => match iit.next() {
+                Some(Ident(trait_id)) => match iit.next() {
+                    Some(Group(block)) if g_arg.delimiter() == Delimiter::Parenthesis => {
+                        (block, Some(trait_id))
+                    }
+                    _ => {
+                        return Err(format!(
+                            "\ninvalid syntax in method `{}` in `enum {enm_n}::{}`\
+- expected: `{{...}}`",
+                            ident,
+                            var.ident.as_ref().unwrap()
+                        ))
+                    }
+                },
+
+                Some(Group(block)) if g_arg.delimiter() == Delimiter::Parenthesis => (block, None),
+                _ => {
+                    return Err(format!(
+                        "\ninvalid syntax in method `{}` in `enum {enm_n}::{}`
+- expected: `{{...}}` or Trait ID",
+                        ident,
+                        var.ident.as_ref().unwrap()
+                    ))
+                }
+            },
+            _ => {
+                return Err(format!(
+                    "\ninvalid syntax in method `{}` in `enum {enm_n}::{}` - expected: `(...)`",
+                    ident,
+                    var.ident.as_ref().unwrap()
+                ))
+            }
+        };
+        let name = opt_trait.as_ref().map_or(ident.to_string(), |t| format!("{ident}() {t}"));
+        if !mset.contains(&name) {
+            let mut free_m: Vec<String> = mset
+                .difference(&HashSet::from_iter(var.methods.keys().cloned()))
+                .cloned()
+                .collect();
+            free_m.sort();
+            return Err(if free_m.is_empty() {
+                format!(
+                    "\ninvalid method `{name}` in `enum {enm_n}::{}`:
+`impl(-s)` contains no freely methods to implement `match{{...}}` from `enum {enm_n}::{0}`",
+                    var.ident.as_ref().unwrap()
+                )
+            } else {
+                format!(
+                    "\ninvalid method name `{name}` in `enum {enm_n}::{}`\n- expected{}: `{}`",
+                    var.ident.as_ref().unwrap(),
+                    if free_m.len() == 1 { "" } else { " one of" },
+                    free_m.join("`|`")
+                )
+            });
+        };
+        Ok((VarMeth { ident, fields: var.fields.clone(), block, opt_trait }, name))
+    }
+}
+
 #[derive(Default)]
 struct Var {
-    name: String,
+    ident: Option<Idn>,
     fields: Option<Gr>,
-    methods: HashMap<String, (Option<Gr>, Gr)>,
+    methods: HashMap<String, VarMeth>,
 }
 impl Var {
-    fn vec(item: &mut Item, mset: &HashSet<String>, enm_n: &String) -> Vec<Var> {
+    // #[rustfmt::skip]
+    fn vec(item: &mut Item, mset: &HashSet<String>, enm_n: &String) -> (Vec<Var>, String) {
         let mut iit = mem::take(&mut item.group).into_iter();
         let mut enm: Vec<Var> = Vec::new();
+        let mut err = String::new();
+        let mut err_state = false;
         let dd = TokenStream::from_str("..").unwrap();
         let mut var = Var::default();
         while let Some(tt) = iit.next() {
-            match tt {
-                Punct(p) if p.as_char() == '#' && var.name == "" => match iit.next() {
-                    Some(Group(gr)) if gr.delimiter() == Delimiter::Bracket => {
-                        item.group.extend([Punct(p), Group(gr)]);
-                    }
-                    Some(Punct(p1)) if p.as_char() == '!' => match iit.next() {
-                        Some(Group(gr)) if gr.delimiter() == Delimiter::Bracket => {
-                            item.group.extend([Punct(p), Punct(p1), Group(gr)]);
-                        }
-                        _ => (),
-                    },
-                    _ => (),
-                },
-                Ident(id) => {
-                    let name = id.to_string();
-                    if var.name.is_empty() {
-                        item.group.extend(once(Ident(id)));
-                        var.name = name;
-                    } else {
-                        // method name
-                        if !mset.contains(&name) {
-                            let mut free_m: Vec<String> = mset
-                                .difference(&HashSet::from_iter(var.methods.keys().cloned()))
-                                .cloned()
-                                .collect();
-                            free_m.sort();
-                            if free_m.is_empty() {
-                                println!(
-                                    "impl_match!: invalid method `{name}` in `enum {enm_n}::{}`:
-`impl(-s)` contains no freely methods to implement `match{{...}}` from `enum {enm_n}::{0}`",
-                                    var.name
-                                )
-                            } else {
-                                println!(
-                                    "impl_match!: invalid method name `{name}` in `enum {enm_n}::{}`
-- expected{}: `{}`",
-                                    var.name,
-                                    if free_m.len() == 1 { "" } else { " one of" },
-                                    free_m.join("`|`")
-                                )
-                            }
-                        };
-                        match (iit.next(), iit.next()) {
-                            (Some(Group(g_arg)), Some(Group(g_block)))
-                                if g_arg.delimiter() == Delimiter::Parenthesis
-                                    && g_block.delimiter() == Brace =>
-                            {
-                                if var
-                                    .methods
-                                    .insert(name.clone(), (var.fields.clone(), g_block))
-                                    .is_some()
-                                {
-                                    println!(
-                                        "impl_match!: {} `{name}` in `enum {enm_n}::{}`",
-                                        "repetition of method name", var.name
-                                    )
-                                }
-                            }
-                            _ => println!(
-                                "impl_match!: invalid syntax in method `{}` in `enum {enm_n}::{}`
-- expected: `(...) {{...}}`",
-                                name, var.name
-                            ),
-                        }
-                    }
-                }
-                Group(gr) if gr.delimiter() != Delimiter::Bracket => {
-                    match (var.methods.is_empty(), var.fields.is_none()) {
-                        (true, true) => {
-                            var.fields = Some(Gr::new(gr.delimiter(), dd.clone()));
-                            item.group.extend(once(Group(gr)));
-                        }
-                        (_, false) => var.fields = Some(gr),
-                        _ => (),
-                    }
-                }
-                Punct(p) if p.as_char() == ',' => {
-                    if !var.name.is_empty() {
+            if err_state {
+                match tt {
+                    Punct(p) if p.as_char() == ',' => {
+                        err_state = false;
                         item.group.extend(once(Punct(p)));
                         enm.push(mem::take(&mut var));
                     }
+                    _ => (),
                 }
-                _ => (),
+            } else {
+                match tt {
+                    Punct(p) if p.as_char() == '#' && var.ident.is_none() => match iit.next() {
+                        Some(Group(gr)) if gr.delimiter() == Delimiter::Bracket => {
+                            item.group.extend([Punct(p), Group(gr)]);
+                        }
+                        Some(Punct(p1)) if p.as_char() == '!' => match iit.next() {
+                            Some(Group(gr)) if gr.delimiter() == Delimiter::Bracket => {
+                                item.group.extend([Punct(p), Punct(p1), Group(gr)]);
+                            }
+                            _ => (),
+                        },
+                        _ => (),
+                    },
+                    Ident(id) => {
+                        if var.ident.is_none() {
+                            var.ident = Some(id.clone());
+                            item.group.extend(once(Ident(id)));
+                        } else {
+                            match VarMeth::parse(id, &mut iit, &var, enm_n, mset) {
+                                Err(es) => {
+                                    err += &es;
+                                    err_state = true;
+                                }
+                                Ok((m, name)) => {
+                                    if var.methods.insert(name.clone(), m).is_some() {
+                                        err += &format!(
+                                            "impl_match!: {} `{name}` in `enum {enm_n}::{}`",
+                                            "repetition of method name",
+                                            var.ident.as_ref().unwrap()
+                                        );
+                                        err_state = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Group(gr) if gr.delimiter() != Delimiter::Bracket => {
+                        match (var.methods.is_empty(), var.fields.is_none()) {
+                            (true, true) => {
+                                var.fields = Some(Gr::new(gr.delimiter(), dd.clone()));
+                                item.group.extend(once(Group(gr)));
+                            }
+                            (_, false) => var.fields = Some(gr),
+                            _ => (),
+                        }
+                    }
+                    Punct(p) if p.as_char() == ',' => {
+                        if !var.ident.is_none() {
+                            item.group.extend(once(Punct(p)));
+                            enm.push(mem::take(&mut var));
+                        }
+                    }
+                    _ => (),
+                }
             }
         }
-        if !var.name.is_empty() {
+
+        if var.ident.is_some() {
             enm.push(var)
         }
-        enm
+        (enm, err)
     }
 }
 
@@ -668,14 +760,15 @@ impl Var {
 pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     // std::fs::write("target/debug/input_ts.log", format!("{}\n\n{0:#?}", input_ts)).unwrap();
 
-    let (mut items, mset) = Item::vec(input_ts);
+    let (mut items, mset, flags) = Item::vec(input_ts);
     let opt_enm_i = (items.iter().enumerate().find_map(|(i, it)| it.no_def.then(|| i)))
         .or_else(|| items.iter().enumerate().find_map(|(i, it)| it.it_enum.then(|| i)));
-    let (mut enm, enm_n) = opt_enm_i.map_or((Vec::new(), String::new()), |i| {
-        let enm_item = items.get_mut(i).unwrap();
-        let enm_n = enm_item.ident.clone();
-        (Var::vec(enm_item, &mset, &enm_n), enm_n)
-    });
+    let ((mut enm, err), enm_n) =
+        opt_enm_i.map_or(((Vec::new(), String::new()), String::new()), |i| {
+            let enm_item = items.get_mut(i).unwrap();
+            let enm_n = enm_item.name.clone();
+            (Var::vec(enm_item, &mset, &enm_n), enm_n)
+        });
     let fat_arrow = TokenStream::from_str("=>").unwrap();
     let empty_gr = Gr::new(Brace, TokenStream::new());
     let dd = TokenStream::from_str("..").unwrap();
@@ -684,32 +777,48 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     let mut res_ts = TokenStream::new();
     for mut item in items {
         res_ts.extend(item.prev_ts);
-        if !item.ident.is_empty() && !item.no_def {
+        if !item.name.is_empty() && !item.no_def {
             let group = if item.it_enum {
                 mem::take(&mut item.group)
             } else {
                 let mut group = TokenStream::new();
                 for mut m in item.methods {
                     group.extend(m.prev_ts);
-                    if !m.ident.is_empty() {
-                        let mut block = TokenStream::new();
+                    if !m.name.is_empty() {
+                        let mut match_block = TokenStream::new();
                         for var in enm.iter_mut() {
-                            let (fields, arm_block) = match var.methods.get_mut(&m.ident) {
-                                Some((f, gr)) => (f.take(), mem::replace(gr, empty_gr.clone())),
-                                None => (var.fields.as_ref().map(dd_gr), empty_gr.clone()),
+                            let (fields, arm_block) = match var.methods.get_mut(&m.name) {
+                                Some(VarMeth { fields, block, .. }) => {
+                                    (fields.take(), mem::replace(block, empty_gr.clone()))
+                                }
+                                None => {
+                                    if m.dflt_arm.is_none() {
+                                        continue;
+                                    }
+                                    (var.fields.as_ref().map(dd_gr), m.dflt_arm.clone().unwrap())
+                                }
                             };
-                            block.extend(TokenStream::from_str(&format!("{enm_n}::{}", var.name)));
-                            block.extend(fields.map(Group));
-                            block.extend(fat_arrow.clone());
-                            block.extend(once(Group(arm_block)));
+                            let var_n = var.ident.clone().unwrap();
+                            match_block.extend(TokenStream::from_str(&format!("{enm_n}::{var_n}")));
+                            match_block.extend(fields.map(Group));
+                            match_block.extend(fat_arrow.clone());
+                            match_block.extend(once(Group(arm_block)));
                         }
-                        m.body.extend(once(Group(Gr::new(Brace, block))).chain(m.tail));
+                        m.body.extend(once(Group(Gr::new(Brace, match_block))).chain(m.tail));
                         group.extend(once(Group(Gr::new(Brace, m.body))));
                     }
                 }
                 group
             };
             res_ts.extend(once(Group(Gr::new(Brace, group))));
+        }
+    }
+
+    if !err.is_empty() {
+        if flags & 2 > 0 {
+            println!("Err in impl_match! macro:{err}");
+        } else {
+            panic!("Err in impl_match! macro:{err}");
         }
     }
 

@@ -29,9 +29,9 @@ mod blog {
     impl Post {
         pub fn add_text(&mut self, text: &str) -> Result<&str, String>  ~{ match self.state }
         pub fn request_review(&mut self) -> Result<&State, String>      ~{ match self.state }
-        pub fn reject(&mut self)                                        ~{ match self.state }
+        pub fn reject(&mut self)                                     ~{ match self.state {} }
         pub fn approve(&mut self) -> Result<&State, String>             ~{ match self.state }
-        pub fn content(&mut self) -> &str            ~{ let mut x = ""; match self.state; x }
+        pub fn content(&mut self) -> &str                        ~{ match self.state { "" } }
 
         fn method_not_possible(&self, act: &str) -> String {
             format!("For State::{:?} method '{act}' is not possible", self.state)
@@ -69,7 +69,7 @@ mod blog {
             request_review() { Err(self.method_not_possible("request_review()")) }
             ,
         Published:
-            content() { x = &self.content }
+            content() { &self.content }
 
             add_text() { Err(self.method_not_possible("add_text()")) }
             approve() { Err(self.method_not_possible("approve()")) }
