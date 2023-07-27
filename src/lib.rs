@@ -4,7 +4,7 @@
 use core::str::FromStr;
 use proc_macro::TokenTree::{Group, Ident, Literal, Punct};
 use proc_macro::{token_stream::IntoIter, Delimiter, Delimiter::Brace, Spacing, Span, TokenStream};
-use proc_macro::{Group as Gr, Ident as Idn};
+use proc_macro::{Group as Gr, Ident as Idn, Punct as Pn};
 use std::iter::once;
 
 enum ParseStates {
@@ -306,7 +306,7 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
                 body_ts.extend(TokenStream::from_str(&call_run).unwrap());
                 if m.out.is_empty() {
                     enum_doc.push_str(";");
-                    body_ts.extend(once(Punct(proc_macro::Punct::new(';', Spacing::Alone))));
+                    body_ts.extend(once(Punct(Pn::new(';', Spacing::Alone))));
                 }
             } else if let Some(out_ident) = &attr.out_ident {
                 enum_doc.push_str(&format!("\n    match {call_run} {{"));
@@ -761,28 +761,29 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     // std::fs::write("target/debug/input_ts.log", format!("{}\n\n{0:#?}", input_ts)).unwrap();
 
     let (mut items, mset, flags) = Item::vec(input_ts);
-    let opt_enm_i = (items.iter().enumerate().find_map(|(i, it)| it.no_def.then(|| i)))
+    let opt_enm_idx = (items.iter().enumerate().find_map(|(i, it)| it.no_def.then(|| i)))
         .or_else(|| items.iter().enumerate().find_map(|(i, it)| it.it_enum.then(|| i)));
-    let ((mut enm, err), enm_n) =
-        opt_enm_i.map_or(((Vec::new(), String::new()), String::new()), |i| {
-            let enm_item = items.get_mut(i).unwrap();
-            let enm_n = enm_item.name.clone();
-            (Var::vec(enm_item, &mset, &enm_n), enm_n)
+    let ((mut enm, err), enm_i, no_def) =
+        opt_enm_idx.map_or(((Vec::new(), String::new()), None, false), |i| {
+            let enm_it = items.get_mut(i).unwrap();
+            let enm_i = enm_it.ident.take();
+            (Var::vec(enm_it, &mset, &enm_i.as_ref().unwrap().to_string()), enm_i, enm_it.no_def)
         });
+    let enm_n = enm_i.as_ref().map_or(String::new(), |i| i.to_string());
     let fat_arrow = TokenStream::from_str("=>").unwrap();
     let empty_gr = Gr::new(Brace, TokenStream::new());
     let dd = TokenStream::from_str("..").unwrap();
     let dd_gr = |g: &Gr| Gr::new(g.delimiter(), dd.clone());
 
     let mut res_ts = TokenStream::new();
-    for mut item in items {
-        res_ts.extend(item.prev_ts);
+    for item in items.iter_mut() {
+        res_ts.extend(mem::take(&mut item.prev_ts));
         if !item.name.is_empty() && !item.no_def {
             let group = if item.it_enum {
                 mem::take(&mut item.group)
             } else {
                 let mut group = TokenStream::new();
-                for mut m in item.methods {
+                for mut m in mem::take(&mut item.methods) {
                     group.extend(m.prev_ts);
                     if !m.name.is_empty() {
                         let mut match_block = TokenStream::new();
@@ -814,11 +815,81 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
         }
     }
 
+    // highlighting var methods and @enum
+    if flags & 1 == 0 {
+        if enm_i.is_some() {
+            let item_n = (items.iter())
+                .find_map(|it| (!it.it_enum && !it.name.is_empty()).then(|| it.name.clone()))
+                .unwrap_or_default();
+            let span = Span::call_site();
+            let item_ts = TokenStream::from_iter([
+                Ident(Idn::new(&item_n, span)),
+                Punct(Pn::new(':', Spacing::Joint)),
+                Punct(Pn::new(':', Spacing::Alone)),
+            ]);
+            let sm = Punct(Pn::new(';', Spacing::Alone));
+            let as_i = Ident(Idn::new("as", span));
+            let use_i = Ident(Idn::new("use", span));
+            let mut enm_i = if no_def { enm_i } else { None };
+            let mut fn_ts = TokenStream::new();
+            let mut mod_ts = TokenStream::new();
+            for var in enm {
+                if no_def {
+                    fn_ts.extend([
+                        Ident(if enm_i.is_some() {
+                            enm_i.take().unwrap()
+                        } else {
+                            Idn::new(&enm_n, span)
+                        }),
+                        Punct(Pn::new(':', Spacing::Joint)),
+                        Punct(Pn::new(':', Spacing::Alone)),
+                    ]);
+                    fn_ts.extend([Ident(var.ident.clone().unwrap()), sm.clone()]);
+                }
+                if !item_n.is_empty() {
+                    for (_, mut m) in var.methods.into_iter() {
+                        if let Some(trait_i) = m.opt_trait.take() {
+                            mod_ts.extend([
+                                use_i.clone(),
+                                Ident(trait_i),
+                                as_i.clone(),
+                                Ident(Idn::new(
+                                    &(m.ident.to_string()
+                                        + &var.ident.as_ref().unwrap().to_string()),
+                                    span,
+                                )),
+                                sm.clone(),
+                            ]);
+                        }
+                        fn_ts.extend(item_ts.clone());
+                        fn_ts.extend([Ident(m.ident), sm.clone()]);
+                    }
+                }
+            }
+            if !fn_ts.is_empty() {
+                res_ts.extend(
+                    TokenStream::from_str(&format!(
+                        r##"
+                    #[allow(unused)]
+                    #[cfg(debug_assertions)]
+                    #[doc(hidden)]
+                    mod impl_match_semantic_span_{}"##,
+                        format!("{:?}", Span::call_site()).replace(|ch: char| !ch.is_numeric(), "")
+                    ))
+                    .unwrap(),
+                );
+                mod_ts.extend(TokenStream::from_str("use super::*; fn h()").unwrap());
+                mod_ts.extend(once(Group(Gr::new(Brace, fn_ts))));
+                res_ts.extend(once(Group(Gr::new(Brace, mod_ts))));
+            }
+        }
+    }
+
     if !err.is_empty() {
-        if flags & 2 > 0 {
-            println!("Err in impl_match! macro:{err}");
-        } else {
+        if flags & 2 == 0 {
             panic!("Err in impl_match! macro:{err}");
+        } else {
+            println!("Err in impl_match! macro:{err}");
         }
     }
 
