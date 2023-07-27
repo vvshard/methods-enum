@@ -47,18 +47,4 @@ mod blog {
     }
 
     } // impl_match!
-
-
-
-    #[cfg(debug_assertions)]
-    #[doc(hidden)]
-    #[allow(unused)]
-    mod bb{
-        use super::*;
-        fn a(){
-            State::Draft;
-            Post::request_review;
-        }
-    }
-
 }

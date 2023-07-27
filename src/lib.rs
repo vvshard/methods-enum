@@ -2,7 +2,7 @@
 //! [crate documentation](crate)
 
 use core::str::FromStr;
-use proc_macro::TokenTree::{Group, Ident, Literal, Punct};
+use proc_macro::TokenTree::{Group, Ident, Punct};
 use proc_macro::{token_stream::IntoIter, Delimiter, Delimiter::Brace, Spacing, Span, TokenStream};
 use proc_macro::{Group as Gr, Ident as Idn, Punct as Pn};
 use std::iter::once;
@@ -418,6 +418,12 @@ use std::collections::{HashMap, HashSet};
 use std::mem;
 
 #[derive(Default)]
+struct Flags {
+    panic: bool,
+    no_semnt: bool,
+}
+
+#[derive(Default)]
 struct Item {
     name: String,
     ident: Option<Idn>,
@@ -435,17 +441,29 @@ impl Item {
         new_state
     }
 
-    fn vec(ts: TokenStream) -> (Vec<Item>, HashSet<String>, i32) {
+    fn vec(ts: TokenStream) -> (Vec<Item>, HashSet<String>, Flags) {
         let mut items = Vec::new();
         let mut mset: HashSet<String> = HashSet::new();
-        let mut flags = 0;
+        let mut flags = Flags::default();
         let mut impl_n = String::new();
         let mut item = Item::default();
         let mut state = Args;
         for tt in ts {
             state = match (state, tt) {
-                (Args, Literal(lt)) => {
-                    flags = lt.to_string().parse().unwrap_or(0);
+                (Args, Group(gr)) if gr.delimiter() == Delimiter::Parenthesis => {
+                    for fl in gr.stream() {
+                        match fl {
+                            Punct(p) if p.as_char() == '!' => flags.panic = true,
+                            Ident(id) => match &id.to_string().to_lowercase()[..] {
+                                "ns" | "sn" => {
+                                    flags.no_semnt = true;
+                                    flags.panic = true;
+                                }
+                                _ => (),
+                            },
+                            _ => (),
+                        }
+                    }
                     Start
                 }
                 (Start | Args, Punct(p)) if p.as_char() == '@' => {
@@ -641,7 +659,7 @@ impl Var {
                         if var.ident.is_none() {
                             var.ident = Some(id.clone());
                             item.group.extend(once(Ident(id)));
-                        } else if id.to_string() == "fn" {
+                        // } else if id.to_string() == "fn" {
                         } else {
                             // method
                             let mut opt_tt = iit.next();
@@ -658,6 +676,8 @@ impl Var {
                                 }
                                 _ => None,
                             };
+                            let in_enum_var =
+                                format!("in `enum {enm_n}::{}`", var.ident.as_ref().unwrap());
                             match opt_tt {
                                 Some(Group(block)) if block.delimiter() == Brace => {
                                     let name = (opt_trait.as_ref())
@@ -670,17 +690,21 @@ impl Var {
                                     };
                                     if var.methods.insert(name.clone(), m).is_some() {
                                         err += &format!(
-                                            "\nrepetition of method name `{name}` \
-in `enum {enm_n}::{}` (last arm-block used)",
-                                            var.ident.as_ref().unwrap()
+                                            "\nRepetition of method name `{name}` \
+{in_enum_var} (last arm-block used)"
                                         );
                                     }
                                 }
-                                _ => {
+                                Some(tt2) => {
                                     err += &format!(
-                                        "\ninvalid syntax in method `{id}` in `enum {enm_n}::{}` \
-- expected: `{{...}}`",
-                                        var.ident.as_ref().unwrap()
+                                        "\nInvalid syntax in method `{id}` {in_enum_var} \
+- expected arm-block: `{{...}}`, found: `{tt2}`"
+                                    );
+                                    err_state = true;
+                                }
+                                None => {
+                                    err += &format!(
+                                        "\nUnexpected end of macro on method`{id}` {in_enum_var}"
                                     );
                                     err_state = true;
                                 }
@@ -722,7 +746,7 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     let (mut items, mset, flags) = Item::vec(input_ts);
     let opt_enm_idx = (items.iter().enumerate().find_map(|(i, it)| it.no_def.then(|| i)))
         .or_else(|| items.iter().enumerate().find_map(|(i, it)| it.it_enum.then(|| i)));
-    let ((mut enm, err), enm_i, no_def) =
+    let ((mut enm, mut err), enm_i, no_def) =
         opt_enm_idx.map_or(((Vec::new(), String::new()), None, false), |i| {
             let enm_it = items.get_mut(i).unwrap();
             let enm_i = enm_it.ident.take();
@@ -775,12 +799,13 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     }
 
     // semantic+highlighting var methods / traits and @enum
-    if flags & 1 == 0 {
+    if !flags.no_semnt {
         if enm_i.is_some() {
             let item_n = (items.iter())
                 .find_map(|it| (!it.it_enum && !it.name.is_empty()).then(|| it.name.clone()))
                 .unwrap_or_default();
             let span = Span::call_site();
+            let enm_span = enm_i.as_ref().unwrap().span();
             let item_ts = TokenStream::from_iter([
                 Ident(Idn::new(&item_n, span)),
                 Punct(Pn::new(':', Spacing::Joint)),
@@ -789,7 +814,7 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
             let sm = Punct(Pn::new(';', Spacing::Alone));
             let mut enm_i = if no_def { enm_i } else { None };
             let mut fn_ts = TokenStream::new();
-            for var in enm {
+            for var in enm.iter_mut() {
                 if no_def {
                     fn_ts.extend([
                         Ident(if enm_i.is_some() {
@@ -803,8 +828,8 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                     fn_ts.extend([Ident(var.ident.clone().unwrap()), sm.clone()]);
                 }
                 if !item_n.is_empty() {
-                    for (_, m) in var.methods.into_iter() {
-                        fn_ts.extend(if let Some(trait_i) = m.opt_trait {
+                    for m in var.methods.values_mut() {
+                        fn_ts.extend(if let Some(trait_i) = m.opt_trait.take() {
                             TokenStream::from_iter([
                                 Punct(Pn::new('<', Spacing::Alone)),
                                 Ident(Idn::new(&item_n, span)),
@@ -817,7 +842,7 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                         } else {
                             item_ts.clone()
                         });
-                        fn_ts.extend([Ident(m.ident), sm.clone()]);
+                        fn_ts.extend([Ident(m.ident.clone()), sm.clone()]);
                     }
                 }
             }
@@ -829,7 +854,7 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                     #[cfg(debug_assertions)]
                     #[doc(hidden)]
                     mod impl_match_semantic_span_{}"##,
-                        format!("{span:?}").replace(|ch: char| !ch.is_numeric(), "")
+                        format!("{enm_span:?}").replace(|ch: char| !ch.is_numeric(), "")
                     ))
                     .unwrap(),
                 );
@@ -840,11 +865,37 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
         }
     }
 
+    // errors
+    if !enm_n.is_empty() {
+        for var in enm.iter() {
+            for name in var.methods.keys() {
+                if !mset.contains(name) {
+                    let mut free_m: Vec<String> = mset
+                        .difference(&HashSet::from_iter(var.methods.keys().cloned()))
+                        .cloned()
+                        .collect();
+                    free_m.sort();
+                    let enm_var = format!("`enum {enm_n}::{}`", var.ident.as_ref().unwrap());
+                    if free_m.is_empty() {
+                        err += &format!(
+                            "\nInvalid method `{name}` in {enm_var}:
+`impl(-s)` contains no freely methods to implement `match{{...}}` from {enm_var}"
+                        )
+                    } else {
+                        err += &format!(
+                            "\nInvalid method name `{name}` in {enm_var} - expected{}: `{}`",
+                            if free_m.len() == 1 { "" } else { " one of" },
+                            free_m.join("`|`")
+                        )
+                    }
+                };
+            }
+        }
+    }
     if !err.is_empty() {
-        if flags & 2 == 0 {
+        eprintln!("Err in impl_match! macro:{err}");
+        if flags.panic {
             panic!("Err in impl_match! macro:{err}");
-        } else {
-            println!("Err in impl_match! macro:{err}");
         }
     }
 

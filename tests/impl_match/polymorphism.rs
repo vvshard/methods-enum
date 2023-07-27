@@ -1,9 +1,9 @@
-methods_enum::impl_match! { 
+methods_enum::impl_match! { (!)
 
 enum Shape {
     Circle(f64): (radius)
         zoom(scale)    { Shape::Circle(radius * scale) }
-        to_rect()      { *self = Shape::Rectangle{width: radius * 2., height: radius * 2.} }
+        to_rect()      { *self = Shape::Rectangle { width: radius * 2., height: radius * 2.} }
         fmt(f) Display { write!(f, "Circle(R: {radius:.1})") }
     ,
     Rectangle { width: f64, height: f64 }: { width: w, height }
