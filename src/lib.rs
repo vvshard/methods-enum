@@ -815,7 +815,7 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
         }
     }
 
-    // highlighting var methods and @enum
+    // semantic+highlighting var methods / traits and @enum
     if flags & 1 == 0 {
         if enm_i.is_some() {
             let item_n = (items.iter())
