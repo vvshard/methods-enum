@@ -1,4 +1,4 @@
-methods_enum::impl_match! { 2
+methods_enum::impl_match! { 
 
 enum Shape {
     Circle(f64): (radius)

@@ -509,7 +509,7 @@ impl Item {
             state = match (state, tt) {
                 (Start, Ident(id)) if id.to_string() == "fn" => m.prev_extend(Ident(id), Name),
                 (Name, Ident(id)) => {
-                    m.name = self.ident.as_ref().map_or(id.to_string(), |t| format!("{id}() {t}"));
+                    m.name = self.ident.as_ref().map_or(id.to_string(), |t| format!("{id} {t}"));
                     m.prev_extend(Ident(id), Gt)
                 }
                 (Gt, Group(gr)) if gr.delimiter() == Brace => m.prev_extend(Group(gr), Start),
@@ -598,73 +598,6 @@ struct VarMeth {
     block: Gr,
     opt_trait: Option<Idn>,
 }
-impl VarMeth {
-    fn parse(
-        ident: Idn,
-        iit: &mut IntoIter,
-        var: &Var,
-        enm_n: &str,
-        mset: &HashSet<String>,
-    ) -> Result<(VarMeth, String), String> {
-        let (block, opt_trait) = match iit.next() {
-            Some(Group(g_arg)) if g_arg.delimiter() == Delimiter::Parenthesis => match iit.next() {
-                Some(Ident(trait_id)) => match iit.next() {
-                    Some(Group(block)) if g_arg.delimiter() == Delimiter::Parenthesis => {
-                        (block, Some(trait_id))
-                    }
-                    _ => {
-                        return Err(format!(
-                            "\ninvalid syntax in method `{}` in `enum {enm_n}::{}`\
-- expected: `{{...}}`",
-                            ident,
-                            var.ident.as_ref().unwrap()
-                        ))
-                    }
-                },
-
-                Some(Group(block)) if g_arg.delimiter() == Delimiter::Parenthesis => (block, None),
-                _ => {
-                    return Err(format!(
-                        "\ninvalid syntax in method `{}` in `enum {enm_n}::{}`
-- expected: `{{...}}` or Trait ID",
-                        ident,
-                        var.ident.as_ref().unwrap()
-                    ))
-                }
-            },
-            _ => {
-                return Err(format!(
-                    "\ninvalid syntax in method `{}` in `enum {enm_n}::{}` - expected: `(...)`",
-                    ident,
-                    var.ident.as_ref().unwrap()
-                ))
-            }
-        };
-        let name = opt_trait.as_ref().map_or(ident.to_string(), |t| format!("{ident}() {t}"));
-        if !mset.contains(&name) {
-            let mut free_m: Vec<String> = mset
-                .difference(&HashSet::from_iter(var.methods.keys().cloned()))
-                .cloned()
-                .collect();
-            free_m.sort();
-            return Err(if free_m.is_empty() {
-                format!(
-                    "\ninvalid method `{name}` in `enum {enm_n}::{}`:
-`impl(-s)` contains no freely methods to implement `match{{...}}` from `enum {enm_n}::{0}`",
-                    var.ident.as_ref().unwrap()
-                )
-            } else {
-                format!(
-                    "\ninvalid method name `{name}` in `enum {enm_n}::{}`\n- expected{}: `{}`",
-                    var.ident.as_ref().unwrap(),
-                    if free_m.len() == 1 { "" } else { " one of" },
-                    free_m.join("`|`")
-                )
-            });
-        };
-        Ok((VarMeth { ident, fields: var.fields.clone(), block, opt_trait }, name))
-    }
-}
 
 #[derive(Default)]
 struct Var {
@@ -673,8 +606,7 @@ struct Var {
     methods: HashMap<String, VarMeth>,
 }
 impl Var {
-    // #[rustfmt::skip]
-    fn vec(item: &mut Item, mset: &HashSet<String>, enm_n: &String) -> (Vec<Var>, String) {
+    fn vec(item: &mut Item, enm_n: &String) -> (Vec<Var>, String) {
         let mut iit = mem::take(&mut item.group).into_iter();
         let mut enm: Vec<Var> = Vec::new();
         let mut err = String::new();
@@ -709,23 +641,50 @@ impl Var {
                         if var.ident.is_none() {
                             var.ident = Some(id.clone());
                             item.group.extend(once(Ident(id)));
+                        } else if id.to_string() == "fn" {
                         } else {
-                            match VarMeth::parse(id, &mut iit, &var, enm_n, mset) {
-                                Err(es) => {
-                                    err += &es;
-                                    err_state = true;
+                            // method
+                            let mut opt_tt = iit.next();
+                            match opt_tt {
+                                Some(Group(ref g)) if g.delimiter() == Delimiter::Parenthesis => {
+                                    opt_tt = iit.next()
                                 }
-                                Ok((m, name)) => {
+                                _ => (),
+                            }
+                            let opt_trait = match opt_tt {
+                                Some(Ident(trait_id)) => {
+                                    opt_tt = iit.next();
+                                    Some(trait_id)
+                                }
+                                _ => None,
+                            };
+                            match opt_tt {
+                                Some(Group(block)) if block.delimiter() == Brace => {
+                                    let name = (opt_trait.as_ref())
+                                        .map_or(id.to_string(), |t| format!("{id} {t}"));
+                                    let m = VarMeth {
+                                        ident: id,
+                                        fields: var.fields.clone(),
+                                        block,
+                                        opt_trait,
+                                    };
                                     if var.methods.insert(name.clone(), m).is_some() {
                                         err += &format!(
-                                            "impl_match!: {} `{name}` in `enum {enm_n}::{}`",
-                                            "repetition of method name",
+                                            "\nrepetition of method name `{name}` \
+in `enum {enm_n}::{}` (last arm-block used)",
                                             var.ident.as_ref().unwrap()
                                         );
-                                        err_state = true;
                                     }
                                 }
-                            }
+                                _ => {
+                                    err += &format!(
+                                        "\ninvalid syntax in method `{id}` in `enum {enm_n}::{}` \
+- expected: `{{...}}`",
+                                        var.ident.as_ref().unwrap()
+                                    );
+                                    err_state = true;
+                                }
+                            };
                         }
                     }
                     Group(gr) if gr.delimiter() != Delimiter::Bracket => {
@@ -767,7 +726,7 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
         opt_enm_idx.map_or(((Vec::new(), String::new()), None, false), |i| {
             let enm_it = items.get_mut(i).unwrap();
             let enm_i = enm_it.ident.take();
-            (Var::vec(enm_it, &mset, &enm_i.as_ref().unwrap().to_string()), enm_i, enm_it.no_def)
+            (Var::vec(enm_it, &enm_i.as_ref().unwrap().to_string()), enm_i, enm_it.no_def)
         });
     let enm_n = enm_i.as_ref().map_or(String::new(), |i| i.to_string());
     let fat_arrow = TokenStream::from_str("=>").unwrap();
@@ -828,11 +787,8 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                 Punct(Pn::new(':', Spacing::Alone)),
             ]);
             let sm = Punct(Pn::new(';', Spacing::Alone));
-            let as_i = Ident(Idn::new("as", span));
-            let use_i = Ident(Idn::new("use", span));
             let mut enm_i = if no_def { enm_i } else { None };
             let mut fn_ts = TokenStream::new();
-            let mut mod_ts = TokenStream::new();
             for var in enm {
                 if no_def {
                     fn_ts.extend([
@@ -847,21 +803,20 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                     fn_ts.extend([Ident(var.ident.clone().unwrap()), sm.clone()]);
                 }
                 if !item_n.is_empty() {
-                    for (_, mut m) in var.methods.into_iter() {
-                        if let Some(trait_i) = m.opt_trait.take() {
-                            mod_ts.extend([
-                                use_i.clone(),
+                    for (_, m) in var.methods.into_iter() {
+                        fn_ts.extend(if let Some(trait_i) = m.opt_trait {
+                            TokenStream::from_iter([
+                                Punct(Pn::new('<', Spacing::Alone)),
+                                Ident(Idn::new(&item_n, span)),
+                                Ident(Idn::new("as", span)),
                                 Ident(trait_i),
-                                as_i.clone(),
-                                Ident(Idn::new(
-                                    &(m.ident.to_string()
-                                        + &var.ident.as_ref().unwrap().to_string()),
-                                    span,
-                                )),
-                                sm.clone(),
-                            ]);
-                        }
-                        fn_ts.extend(item_ts.clone());
+                                Punct(Pn::new('>', Spacing::Alone)),
+                                Punct(Pn::new(':', Spacing::Joint)),
+                                Punct(Pn::new(':', Spacing::Alone)),
+                            ])
+                        } else {
+                            item_ts.clone()
+                        });
                         fn_ts.extend([Ident(m.ident), sm.clone()]);
                     }
                 }
@@ -874,11 +829,11 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                     #[cfg(debug_assertions)]
                     #[doc(hidden)]
                     mod impl_match_semantic_span_{}"##,
-                        format!("{:?}", Span::call_site()).replace(|ch: char| !ch.is_numeric(), "")
+                        format!("{span:?}").replace(|ch: char| !ch.is_numeric(), "")
                     ))
                     .unwrap(),
                 );
-                mod_ts.extend(TokenStream::from_str("use super::*; fn h()").unwrap());
+                let mut mod_ts = TokenStream::from_str("use super::*; fn h()").unwrap();
                 mod_ts.extend(once(Group(Gr::new(Brace, fn_ts))));
                 res_ts.extend(once(Group(Gr::new(Brace, mod_ts))));
             }
