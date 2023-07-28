@@ -59,57 +59,70 @@ mod blog {
     } // <-- impl_match!
 }
 ```
-All the macro does is complete the unfinished match-expressions in method bodies marked with `~` for all `enum` variants branches in the form  
+All the macro does is complete the unfinished match-expressions in method bodies marked with `~` for all `enum` variants branches in the form:   
 `(EnumName)::(Variant) => { match-arm block from enum declaration }`.  
-Instead of the methods omitted in the `enum` declaration, in resulting `match` will be:  
-`(EnumName)::(Variant) => {}`.  
+If a `{}` block (without `=>`) is set at the end of an unfinished match-expressions, it will be placed in all variants branches that do not have this method in `enum`:   
+`(EnumName)::(Variant) => { default match-arm block }`.  
 Thus, you see all the code that the compiler will receive, but in a form structured according to the design pattern.
 
-**rust-analyzer**[^rust_analyzer] sees perfectly in this example that `x` is the same variable in both blocks. All hints, auto-completions and replacements in the IDE are processed in match-arm displayed in `enum` as if they were in their own match-block. Plus, the "inline macro" command works in the IDE, displaying the resulting code.
+**rust-analyzer**[^rust_analyzer] perfectly defines identifiers in all blocks. All hints, auto-completions and replacements in the IDE are processed in match-arm displayed in `enum` as if they were in their native match-block. Plus, the "inline macro" command works in the IDE, displaying the resulting code.
 
 [^rust_analyzer]: *rust-analyzer may not expand proc-macro when running under nightly or old rust edition.* In this case it is recommended to set in its settings: [`"rust-analyzer.server.extraEnv": { "RUSTUP_TOOLCHAIN": "stable" }`](https://rust-analyzer.github.io/manual.html#toolchain)
 
 ## Other features
 
-- You can also include `impl (Trait) for ...` blocks in a macro. Example with `Display` - below.
+- You can also include `impl (Trait) for ...` blocks in a macro. The name of the `Trait` (without the path) is specified in the enum before the corresponding arm-block.   
+Example with `Display` - below.
 
-- If you are using `enum` with fields, then before the name of the method that uses them, specify the template for decomposing fields into variables (the IDE[^rust_analyzer] works completely correctly with such variables). Example:
+- An example of a method with generics is also shown there: `mark_obj<T: Display>()`.   
+Working with [traits]() and [generics]() has some non-critical features, which are mentioned in the [documentation]().
+
+- If you are using `enum` with fields, then before the name of the method that uses them, specify the template for decomposing fields into variables (the IDE[^rust_analyzer] works completely correctly with such variables). The template to decompose is accepted by downstream methods of the same enumeration variant and can be reassigned. Example:
 ```rust
 methods_enum::impl_match! {
 
 enum Shape {
-    Circle(f64): (r)
-        zoom(scale)    { Shape::Circle(r * scale) }
-        to_rect()      { *self = Shape::Rectangle { width: r * 2., height: r * 2. } }
-        fmt(f) Display { write!(f, "Circle(R: {r:.1})") }
+    Circle(f64): (radius)
+        zoom(scale)    { Shape::Circle(radius * scale) }
+        to_rect()      { *self = Shape::Rectangle { width: radius * 2., height: radius * 2.} }
+        fmt(f) Display { write!(f, "Circle(R: {radius:.1})") }; (..) // `(..)` - template reset for mark_obj()
+        mark_obj(obj)  { format!("⭕ {}", obj) }
     ,
     Rectangle { width: f64, height: f64 }: { width: w, height }
         zoom(scale)    { Shape::Rectangle { width: w * scale, height: height * scale } }
-        fmt(f) Display { write!(f, "Rectangle(W: {w:.1}, H: {height:.1})") }
+        fmt(f) Display { write!(f, "Rectangle(W: {w:.1}, H: {height:.1})") }; {..} // `{..}` - template reset for mark_obj()
+        mark_obj(obj)  { format!("⏹️ {}", obj) }
 }
 impl Shape {
-    fn zoom(self, scale: f64) -> Shape              ~{ match self }
-    fn to_rect(&mut self)                           ~{ match *self {} }
+    fn zoom(&mut self, scale: f64)                      ~{ *self = match *self }
+    fn to_rect(&mut self) -> &mut Shape                 ~{ match *self {}; self }
+    fn mark_obj<T: Display>(&self, obj: &T) -> String   ~{ match self }
 }
 
 use std::fmt::{Display, Formatter, Result};
-impl Display for Shape {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result  ~{ match self }
+
+impl Display for Shape{
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result      ~{ match self }
 }
-} // <-- impl_match!
+
+} //impl_match!
 
 pub fn main() {
-    let rect = Shape::Rectangle { width: 10., height: 10. };
+    let mut rect = Shape::Rectangle { width: 10., height: 10. };
     assert_eq!(format!("{rect}"), "Rectangle(W: 10.0, H: 10.0)");
-
+    rect.zoom(3.);
     let mut circle = Shape::Circle(15.);
-    assert_eq!(circle.to_string(), "Circle(R: 15.0)");
-    circle.to_rect();
-    assert_eq!(circle.to_string(), rect.zoom(3.).to_string()); // "Rectangle(W: 30.0, H: 30.0)" 
+    assert_eq!(rect.mark_obj(&circle), "⏹️ Circle(R: 15.0)");
+    // "Rectangle(W: 30.0, H: 30.0)"
+    assert_eq!(circle.to_rect().to_string(), rect.to_string());
 }
 ```
+- Features not included in the examples:
+    - `@` - character before the `enum` declaration, eg: `@enum State {...` disables passing to the `enum` compiler: only match-arms will be processed. This may be required if this `enum` is already declared elsewhere in the code.
+    - Debug flags. They can be placed through spaces in parentheses at the very beginning of the macro, eg: `impl_match! { (ns ) ...`
+        - flag `ns` or `sn` in any case - replaces the semantic binding of the names of methods and traits in `enum` variants with a compilation error if they are incorrectly specified.
+        - flag `!` - causes a compilation error in the same case, but without removing the semantic binding.
 
-- `@` - character before the `enum` declaration, eg: `@enum State {...` disables passing to the `enum` compiler: only match-arms will be processed. This may be required if this `enum` is already declared elsewhere in the code.
 
 ## Links
 
@@ -156,6 +169,7 @@ mod blog {
         pub fn request_review(&mut self);
         pub fn approve(&mut self);
         pub fn content(&mut self) -> &str;
+
         #[rustfmt::skip]
         fn run_methods(&mut self, method: Meth) -> &str {
             match self.state {
@@ -209,8 +223,8 @@ where:
 
 - [Code examples with `#[gen(....)]`]().
 ___
-The advantage of `gen()` over `impl_match!` is that it allows you to see the entire `match` expression and process more complex logic, including those with non-trivial incoming `match` expressions, `match guard` and nested `match` from substate enums.
-But `gen()` loses out to `impl_match!` in terms of [limitations]() and ease of working with methods and their output values.
+The gen() macro loses out to impl_match! in terms of [restrictions]() and ease of working with methods and their output values.
+The benefit of gen() is that it allows you to see the full match-expression and handle more complex logic, including those with non-trivial incoming expressions, match guards, and nested matches from substate enums.
 ___
 # License
 MIT or Apache-2.0 license of your choice.

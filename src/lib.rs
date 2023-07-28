@@ -417,7 +417,6 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 use std::collections::{HashMap, HashSet};
 use std::mem;
 
-#[derive(Default)]
 struct Flags {
     panic: bool,
     no_semnt: bool,
@@ -441,27 +440,35 @@ impl Item {
         new_state
     }
 
-    fn vec(ts: TokenStream) -> (Vec<Item>, HashSet<String>, Flags) {
+    fn vec(ts: TokenStream) -> (Vec<Item>, HashMap<String, bool>, Flags, Span) {
         let mut items = Vec::new();
-        let mut mset: HashSet<String> = HashSet::new();
-        let mut flags = Flags::default();
+        let mut mmap: HashMap<String, bool> = HashMap::new();
+        let mut last_span = Span::call_site();
         let mut impl_n = String::new();
         let mut item = Item::default();
         let mut state = Args;
+        let mut flags = Flags { no_semnt: true, panic: true };
+        if cfg!(debug_assertions) {
+            flags.no_semnt = false;
+            flags.panic = false;
+        }
         for tt in ts {
+            last_span = tt.span();
             state = match (state, tt) {
                 (Args, Group(gr)) if gr.delimiter() == Delimiter::Parenthesis => {
-                    for fl in gr.stream() {
-                        match fl {
-                            Punct(p) if p.as_char() == '!' => flags.panic = true,
-                            Ident(id) => match &id.to_string().to_lowercase()[..] {
-                                "ns" | "sn" => {
-                                    flags.no_semnt = true;
-                                    flags.panic = true;
-                                }
+                    if cfg!(debug_assertions) {
+                        for fl in gr.stream() {
+                            match fl {
+                                Punct(p) if p.as_char() == '!' => flags.panic = true,
+                                Ident(id) => match &id.to_string().to_lowercase()[..] {
+                                    "ns" | "sn" => {
+                                        flags.no_semnt = true;
+                                        flags.panic = true;
+                                    }
+                                    _ => (),
+                                },
                                 _ => (),
-                            },
-                            _ => (),
+                            }
                         }
                     }
                     Start
@@ -503,7 +510,7 @@ impl Item {
                             if impl_n.is_empty() {
                                 impl_n = item.name.clone();
                             }
-                            item.fill_methods(gr.stream(), &mut mset);
+                            item.fill_methods(gr.stream(), &mut mmap);
                             items.push(mem::take(&mut item));
                         } else {
                             item.name = String::new();
@@ -512,31 +519,48 @@ impl Item {
                     }
                     Start
                 }
-                (gw, tt) => item.prev_extend(tt, gw),
+                (Args, tt) => item.prev_extend(tt, Start),
+                (st, tt) => item.prev_extend(tt, st),
             }
         }
         item.name = String::new();
         items.push(item);
-        (items, mset, flags)
+        (items, mmap, flags, last_span)
     }
 
-    fn fill_methods(&mut self, ts: TokenStream, mset: &mut HashSet<String>) {
+    fn fill_methods(&mut self, ts: TokenStream, mmap: &mut HashMap<String, bool>) {
         let mut m = MethIM::default();
+        let mut args: Option<TokenStream> = None;
         let mut state = Start;
         for tt in ts {
             state = match (state, tt) {
                 (Start, Ident(id)) if id.to_string() == "fn" => m.prev_extend(Ident(id), Name),
                 (Name, Ident(id)) => {
                     m.name = self.ident.as_ref().map_or(id.to_string(), |t| format!("{id} {t}"));
-                    m.prev_extend(Ident(id), Gt)
+                    args = None;
+                    m.prev_extend(Ident(id), Args)
+                }
+                (Args, Punct(p)) if p.as_char() == '<' => {
+                    args = Some(TokenStream::from_iter(once(Ident(Idn::new("impl", p.span())))));
+                    m.prev_extend(Punct(p), Gt)
+                }
+                (Args, Group(gr)) if gr.delimiter() == Delimiter::Parenthesis => {
+                    args = Some(gr.stream());
+                    m.prev_extend(Group(gr), Gt)
                 }
                 (Gt, Group(gr)) if gr.delimiter() == Brace => m.prev_extend(Group(gr), Start),
                 (Gt, Punct(p)) if p.as_char() == ';' => m.prev_extend(Punct(p), Start),
                 (Gt, Punct(p)) if p.as_char() == '~' => Out,
-                (Gt, tt) => m.prev_extend(tt, Gt),
+                (Gt | Args, tt) => m.prev_extend(tt, Gt),
                 (Out, Group(gr)) if gr.delimiter() == Brace => {
                     if m.found_match(&gr) {
-                        mset.insert(m.name.clone());
+                        mmap.insert(
+                            m.name.clone(),
+                            args.take().map_or(false, |t| {
+                                t.into_iter()
+                                    .any(|tr| matches!(tr, Ident(id) if id.to_string() == "impl"))
+                            }),
+                        );
                         self.methods.push(mem::take(&mut m));
                     } else {
                         m.prev_ts.extend(once(Group(gr)))
@@ -743,7 +767,7 @@ impl Var {
 pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     // std::fs::write("target/debug/input_ts.log", format!("{}\n\n{0:#?}", input_ts)).unwrap();
 
-    let (mut items, mset, flags) = Item::vec(input_ts);
+    let (mut items, mmap, flags, last_sp) = Item::vec(input_ts);
     let opt_enm_idx = (items.iter().enumerate().find_map(|(i, it)| it.no_def.then(|| i)))
         .or_else(|| items.iter().enumerate().find_map(|(i, it)| it.it_enum.then(|| i)));
     let ((mut enm, mut err), enm_i, no_def) =
@@ -805,7 +829,7 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                 .find_map(|it| (!it.it_enum && !it.name.is_empty()).then(|| it.name.clone()))
                 .unwrap_or_default();
             let span = Span::call_site();
-            let enm_span = enm_i.as_ref().unwrap().span();
+            let enm_sp = enm_i.as_ref().unwrap().span();
             let item_ts = TokenStream::from_iter([
                 Ident(Idn::new(&item_n, span)),
                 Punct(Pn::new(':', Spacing::Joint)),
@@ -828,21 +852,23 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                     fn_ts.extend([Ident(var.ident.clone().unwrap()), sm.clone()]);
                 }
                 if !item_n.is_empty() {
-                    for m in var.methods.values_mut() {
-                        fn_ts.extend(if let Some(trait_i) = m.opt_trait.take() {
-                            TokenStream::from_iter([
-                                Punct(Pn::new('<', Spacing::Alone)),
-                                Ident(Idn::new(&item_n, span)),
-                                Ident(Idn::new("as", span)),
-                                Ident(trait_i),
-                                Punct(Pn::new('>', Spacing::Alone)),
-                                Punct(Pn::new(':', Spacing::Joint)),
-                                Punct(Pn::new(':', Spacing::Alone)),
-                            ])
-                        } else {
-                            item_ts.clone()
-                        });
-                        fn_ts.extend([Ident(m.ident.clone()), sm.clone()]);
+                    for (k, m) in var.methods.iter_mut() {
+                        if !mmap.get(k).map_or(false, |&v| v) {
+                            fn_ts.extend(if let Some(trait_i) = m.opt_trait.take() {
+                                TokenStream::from_iter([
+                                    Punct(Pn::new('<', Spacing::Alone)),
+                                    Ident(Idn::new(&item_n, span)),
+                                    Ident(Idn::new("as", span)),
+                                    Ident(trait_i),
+                                    Punct(Pn::new('>', Spacing::Alone)),
+                                    Punct(Pn::new(':', Spacing::Joint)),
+                                    Punct(Pn::new(':', Spacing::Alone)),
+                                ])
+                            } else {
+                                item_ts.clone()
+                            });
+                            fn_ts.extend([Ident(m.ident.clone()), sm.clone()]);
+                        }
                     }
                 }
             }
@@ -851,10 +877,11 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                     TokenStream::from_str(&format!(
                         r##"
                     #[allow(unused)]
-                    #[cfg(debug_assertions)]
                     #[doc(hidden)]
-                    mod impl_match_semantic_span_{}"##,
-                        format!("{enm_span:?}").replace(|ch: char| !ch.is_numeric(), "")
+                    mod impl_match_semantic_{}_{}_{}"##,
+                        enm_n.to_lowercase(),
+                        item_n.to_lowercase(),
+                        format!("{enm_sp:?}{last_sp:?}").replace(|ch: char| !ch.is_numeric(), "")
                     ))
                     .unwrap(),
                 );
@@ -866,6 +893,7 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     }
 
     // errors
+    let mset: HashSet<String> = HashSet::from_iter(mmap.into_keys());
     if !enm_n.is_empty() {
         for var in enm.iter() {
             for name in var.methods.keys() {
