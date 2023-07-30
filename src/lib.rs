@@ -518,6 +518,7 @@ impl Item {
         let mut mmap: HashMap<String, bool> = HashMap::new(); // v: bool = there is a generic
         let mut impl_n = String::new();
         let mut item = Item::default();
+        let mut lg = 0;
         let mut state = Args;
         let mut flags = Flags { no_semnt: true, panic: true };
         if cfg!(debug_assertions) {
@@ -525,8 +526,8 @@ impl Item {
             flags.panic = false;
         }
         for tt in ts {
-            state = match (state, tt) {
-                (Args, Group(gr)) if gr.delimiter() == Delimiter::Parenthesis => {
+            state = match (state, tt, lg) {
+                (Args, Group(gr), 0) if gr.delimiter() == Delimiter::Parenthesis => {
                     if cfg!(debug_assertions) {
                         for fl in gr.stream() {
                             match fl {
@@ -544,28 +545,28 @@ impl Item {
                     }
                     Start
                 }
-                (Start | Args, Punct(p)) if p.as_char() == '@' => {
+                (Start | Args, Punct(p), 0) if p.as_char() == '@' => {
                     item.it_enum = true;
                     item.no_def = true;
-                    Gt
+                    Name
                 }
-                (Start | Args, Ident(id)) => match &id.to_string()[..] {
-                    "impl" => item.prev_extend(Ident(id), Gt),
+                (Start | Args, Ident(id), 0) => match &id.to_string()[..] {
+                    "impl" => item.prev_extend(Ident(id), Name),
                     "enum" => {
                         item.it_enum = true;
-                        item.prev_extend(Ident(id), Gt)
+                        item.prev_extend(Ident(id), Name)
                     }
                     _ => item.prev_extend(Ident(id), Start),
                 },
-                (Gt, Ident(id)) if id.to_string() == "for" => item.prev_extend(Ident(id), Out),
-                (st @ (Gt | Out), Ident(id)) => {
+                (Name, Ident(id), 0) if id.to_string() == "for" => item.prev_extend(Ident(id), Out),
+                (st @ (Name | Out), Ident(id), 0) => {
                     match st {
-                        Gt => item.ident = Some(id.clone()),
+                        Name => item.ident = Some(id.clone()),
                         _ => item.name = id.to_string(),
                     }
                     item.prev_extend(Ident(id), st)
                 }
-                (Gt | Out, Group(gr)) if gr.delimiter() == Brace => {
+                (Name | Out, Group(gr), 0) if gr.delimiter() == Brace => {
                     if item.it_enum {
                         item.group = gr.stream();
                         item.name =
@@ -590,8 +591,12 @@ impl Item {
                     }
                     Start
                 }
-                (Args, tt) => item.prev_extend(tt, Start),
-                (st, tt) => item.prev_extend(tt, st),
+                (st, Punct(p), _) if "<>".contains(p.as_char()) => {
+                    lg = 0.max(lg + if p.as_char() == '<' { 1 } else { -1 });
+                    item.prev_extend(Punct(p), st)
+                }
+                (Args, tt, _) => item.prev_extend(tt, Start),
+                (st, tt, _) => item.prev_extend(tt, st),
             }
         }
         item.name = String::new();
@@ -1107,7 +1112,7 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
         }
     }
     if !err.is_empty() {
-        eprintln!("Err in impl_match! macro:{err}");
+        eprintln!("\nErr in impl_match! macro:{err}\n");
         if flags.panic {
             panic!("Err in impl_match! macro:{err}");
         }
