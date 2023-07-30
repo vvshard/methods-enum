@@ -1,4 +1,7 @@
 #![doc = include_str!("../README.md")]
+//!
+//! Two macros for easy implementation of 'state' design pattern and other dynamic polymorphism using enum instead of dyn Trait   
+//!
 //! [crate documentation](crate)
 
 use core::str::FromStr;
@@ -221,7 +224,77 @@ fn ts_to_doc(ts: &TokenStream) -> String {
 ///
 /// Setting `!` after *OutName* enables checking the returned variant by its name, not by its type.
 ///
-/// See the [crate documentation](crate) for details.
+/// The macro attribute is set before an individual (non-Trait) impl block. Based on the method signatures of the impl block, it generates: `enum` with parameters from argument tuples and generates `{}` bodies of these methods with calling the argument handler method from this `enum`.  
+/// This allows the handler method to control the behavior of methods depending on the context, including structuring enum-matching by state.
+///
+/// ## Usage example
+///
+/// [Chapter 17.3 "Implementing an Object-Oriented Design Pattern" of the rust-book](https://doc.rust-lang.org/book/ch17-03-oo-design-patterns.html) shows the implementation of the *state pattern* in Rust, which provides the following behavior:
+/// ```rust ignore
+/// pub fn main() {
+///     let mut post = blog::Post::new();
+///
+///     post.add_text("I ate a salad for lunch today");
+///     assert_eq!("", post.content());
+///     post.request_review(); // without request_review() - approve() should not work
+///     post.approve();  
+///     assert_eq!("I ate a salad for lunch today", post.content());
+/// }
+/// ```
+/// with macro #[gen()] this is solved like this:
+/// ```rust ignore
+/// mod blog {
+///     enum State {
+///         Draft,
+///         PendingReview,
+///         Published,
+///     }
+///
+///     pub struct Post {
+///         state: State,
+///         content: String,
+///     }
+///
+///     #[methods_enum::gen(Meth, run_methods)]
+///     impl Post {
+///         pub fn add_text(&mut self, text: &str);
+///         pub fn request_review(&mut self);
+///         pub fn approve(&mut self);
+///         pub fn content(&mut self) -> &str;
+///
+///         #[rustfmt::skip]
+///         fn run_methods(&mut self, method: Meth) -> &str {
+///             match self.state {
+///                 State::Draft => match method {
+///                     Meth::add_text(text) => { self.content.push_str(text); "" }
+///                     Meth::request_review() => { self.state = State::PendingReview; "" }
+///                     _ => "",
+///                 },
+///                 State::PendingReview => match method {
+///                     Meth::approve() => { self.state = State::Published; "" }
+///                     _ => "",
+///                 },
+///                 State::Published => match method {
+///                     Meth::content() => &self.content,
+///                     _ => "",
+///                 },
+///             }
+///         }
+///
+///         pub fn new() -> Post {
+///             Post { state: State::Draft, content: String::new() }
+///         }
+///     }
+/// }
+/// ```
+/// In the handler method (in this case, `run_methods`), simply write for each state which methods should work and how.
+///
+/// The macro duplicates the output for the compiler in the doc-comments.
+/// Therefore, in the IDE[^rust_analyzer], you can always see the declaration of the generated `enum` and the generated method bodies.
+///
+/// ## [gen macro details and use cases](gen#gen-macro-details-and-use-cases)
+///
+#[doc = include_str!("gen_details.md")]
 #[proc_macro_attribute]
 pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
     // std::fs::write("target/debug/item_ts.log", format!("{}\n\n{0:#?}", item_ts)).unwrap();
@@ -425,7 +498,7 @@ struct Flags {
 #[derive(Default)]
 struct Item {
     name: String,
-    ident: Option<Idn>,
+    ident: Option<Idn>, // for enum here - its id, for impl - the id of the trait
     it_enum: bool,
     no_def: bool,
     prev_ts: TokenStream,
@@ -440,10 +513,9 @@ impl Item {
         new_state
     }
 
-    fn vec(ts: TokenStream) -> (Vec<Item>, HashMap<String, bool>, Flags, Span) {
+    fn vec(ts: TokenStream) -> (Vec<Item>, HashMap<String, bool>, Flags) {
         let mut items = Vec::new();
-        let mut mmap: HashMap<String, bool> = HashMap::new();
-        let mut last_span = Span::call_site();
+        let mut mmap: HashMap<String, bool> = HashMap::new(); // v: bool = there is a generic
         let mut impl_n = String::new();
         let mut item = Item::default();
         let mut state = Args;
@@ -453,7 +525,6 @@ impl Item {
             flags.panic = false;
         }
         for tt in ts {
-            last_span = tt.span();
             state = match (state, tt) {
                 (Args, Group(gr)) if gr.delimiter() == Delimiter::Parenthesis => {
                     if cfg!(debug_assertions) {
@@ -525,7 +596,7 @@ impl Item {
         }
         item.name = String::new();
         items.push(item);
-        (items, mmap, flags, last_span)
+        (items, mmap, flags)
     }
 
     fn fill_methods(&mut self, ts: TokenStream, mmap: &mut HashMap<String, bool>) {
@@ -536,7 +607,7 @@ impl Item {
             state = match (state, tt) {
                 (Start, Ident(id)) if id.to_string() == "fn" => m.prev_extend(Ident(id), Name),
                 (Name, Ident(id)) => {
-                    m.name = self.ident.as_ref().map_or(id.to_string(), |t| format!("{id} {t}"));
+                    m.name = self.ident.as_ref().map_or(id.to_string(), |t| format!("{id}() {t}"));
                     args = None;
                     m.prev_extend(Ident(id), Args)
                 }
@@ -555,7 +626,7 @@ impl Item {
                 (Out, Group(gr)) if gr.delimiter() == Brace => {
                     if m.found_match(&gr) {
                         mmap.insert(
-                            m.name.clone(),
+                            m.name.clone(), // v: bool = there is a generic
                             args.take().map_or(false, |t| {
                                 t.into_iter()
                                     .any(|tr| matches!(tr, Ident(id) if id.to_string() == "impl"))
@@ -705,7 +776,7 @@ impl Var {
                             match opt_tt {
                                 Some(Group(block)) if block.delimiter() == Brace => {
                                     let name = (opt_trait.as_ref())
-                                        .map_or(id.to_string(), |t| format!("{id} {t}"));
+                                        .map_or(id.to_string(), |t| format!("{id}() {t}"));
                                     let m = VarMeth {
                                         ident: id,
                                         fields: var.fields.clone(),
@@ -763,11 +834,134 @@ impl Var {
     }
 }
 
+/// This is an item-like macro that wraps a state `enum` declaration and one or more `impl` blocks, allowing you to write match-expressions without match-arms in the method bodies of these `impl`, writing the match-arms into the corresponding `enum` variants.
+///
+/// ## Usage example
+///
+/// [Chapter 17.3 "Implementing an Object-Oriented Design Pattern" of the rust-book](https://doc.rust-lang.org/book/ch17-03-oo-design-patterns.html) shows the implementation of the *state pattern* in Rust, which provides the following behavior:
+/// ```rust ignore
+/// pub fn main() {
+///     let mut post = blog::Post::new();
+///
+///     post.add_text("I ate a salad for lunch today");
+///     assert_eq!("", post.content());
+///     post.request_review(); // without request_review() - approve() should not work
+///     post.approve();  
+///     assert_eq!("I ate a salad for lunch today", post.content());
+/// }
+/// ```
+/// By setting in Cargo.toml:
+/// ```toml
+/// [dependencies]
+/// methods-enum = "0.3.0"
+/// ```
+/// this can be solved, for example, like this:
+/// ```rust
+/// mod blog {
+///     pub struct Post {
+///         state: State,
+///         content: String,
+///     }
+///
+///     methods_enum::impl_match! {
+///
+///     impl Post {
+///         pub fn add_text(&mut self, text: &str)  ~{ match self.state {} }
+///         pub fn request_review(&mut self)        ~{ match self.state {} }
+///         pub fn approve(&mut self)               ~{ match self.state {} }
+///         pub fn content(&mut self) -> &str       ~{ match self.state { "" } }
+///
+///         pub fn new() -> Post {
+///             Post { state: State::Draft, content: String::new() }
+///         }
+///     }
+///
+///     pub enum State {
+///         Draft:          add_text(text)   { self.content.push_str(text) }
+///                         request_review() { self.state = State::PendingReview },
+///         PendingReview:  approve()        { self.state = State::Published },
+///         Published:      content()        { &self.content }
+///     }
+///
+///     } // <-- impl_match!
+/// }
+/// ```
+/// All the macro does is complete the unfinished match-expressions in method bodies marked with `~` for all `enum` variants branches in the form:   
+/// `(EnumName)::(Variant) => { match-arm block from enum declaration }`.  
+/// If a `{}` block (without `=>`) is set at the end of an unfinished match-expressions, it will be placed in all variants branches that do not have this method in `enum`:   
+/// `(EnumName)::(Variant) => { default match-arm block }`.  
+/// Thus, you see all the code that the compiler will receive, but in a form structured according to the design pattern.
+///
+/// **rust-analyzer**[^rust_analyzer] perfectly defines identifiers in all blocks. All hints, auto-completions and replacements in the IDE are processed in match-arm displayed in `enum` as if they were in their native match-block. Plus, the "inline macro" command works in the IDE, displaying the resulting code.
+///
+/// [^rust_analyzer]: *rust-analyzer may not expand proc-macro when running under nightly or old rust edition.* In this case it is recommended to set in its settings: [`"rust-analyzer.server.extraEnv": { "RUSTUP_TOOLCHAIN": "stable" }`](https://rust-analyzer.github.io/manual.html#toolchain)
+///
+/// ## Other features
+///
+/// - You can also include `impl (Trait) for ...` blocks in a macro. The name of the `Trait` (without the path) is specified in the enum before the corresponding arm-block.   
+/// Example with `Display` - below.
+///
+/// - An example of a method with generics is also shown there: `mark_obj<T: Display>()`.   
+/// There is an uncritical nuance with generics, described in the [documentation]().
+///
+/// - `@` - character before the `enum` declaration, in the example: `@enum Shape {...` disables passing to the `enum` compiler: only match-arms will be processed. This may be required if this `enum` is already declared elsewhere in the code, including outside the macro.
+///
+/// - If you are using `enum` with fields, then before the name of the method that uses them, specify the template for decomposing fields into variables (the IDE[^rust_analyzer] works completely correctly with such variables). The template to decompose is accepted by downstream methods of the same enumeration variant and can be reassigned. Example:
+/// ```rust
+/// methods_enum::impl_match! {
+///
+/// enum Shape {
+/// //     Circle(f64), // if you uncomment or remove these 4 lines, everything will work the same
+/// //     Rectangle { width: f64, height: f64 },
+/// // }
+/// // @enum Shape {
+///     Circle(f64): (radius)
+///         zoom(scale)    { Shape::Circle(radius * scale) }
+///         to_rect()      { *self = Shape::Rectangle { width: radius * 2., height: radius * 2.} }
+///         fmt(f) Display { write!(f, "Circle(R: {radius:.1})") }; (..) // template reset
+///         mark_obj(obj)  { format!("⭕ {}", obj) }
+///     ,
+///     Rectangle { width: f64, height: f64 }: { width: w, height }
+///         zoom(scale)    { Shape::Rectangle { width: w * scale, height: height * scale } }
+///         fmt(f) Display { write!(f, "Rectangle(W: {w:.1}, H: {height:.1})") }; {..}
+///         mark_obj(obj)  { format!("⏹️ {}", obj) }
+/// }
+/// impl Shape {
+///     fn zoom(&mut self, scale: f64)                      ~{ *self = match *self }
+///     fn to_rect(&mut self) -> &mut Shape                 ~{ match *self {}; self }
+///     fn mark_obj<T: Display>(&self, obj: &T) -> String   ~{ match self }
+/// }
+///
+/// use std::fmt::{Display, Formatter, Result};
+///
+/// impl Display for Shape{
+///     fn fmt(&self, f: &mut Formatter<'_>) -> Result      ~{ match self }
+/// }
+///
+/// } //impl_match!
+///
+/// pub fn main() {
+///     let mut rect = Shape::Rectangle { width: 10., height: 10. };
+///     assert_eq!(format!("{rect}"), "Rectangle(W: 10.0, H: 10.0)");
+///     rect.zoom(3.);
+///     let mut circle = Shape::Circle(15.);
+///     assert_eq!(rect.mark_obj(&circle), "⏹️ Circle(R: 15.0)");
+///     // "Rectangle(W: 30.0, H: 30.0)"
+///     assert_eq!(circle.to_rect().to_string(), rect.to_string());
+/// }
+/// ```
+/// - Debug flags. They can be placed through spaces in parentheses at the very beginning of the macro, eg:   
+/// `impl_match! { (ns ) `...
+///     - flag `ns` or `sn` in any case - replaces the semantic binding of the names of methods and traits in `enum` variants with a compilation error if they are incorrectly specified.
+///     - flag `!` - causes a compilation error in the same case, but without removing the semantic binding.
+///
+/// ## [impl_match macro details](impl_match#impl_match-macro-details)
+#[doc = include_str!("impl_match_details.md")]
 #[proc_macro]
 pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     // std::fs::write("target/debug/input_ts.log", format!("{}\n\n{0:#?}", input_ts)).unwrap();
 
-    let (mut items, mmap, flags, last_sp) = Item::vec(input_ts);
+    let (mut items, mmap, flags) = Item::vec(input_ts);
     let opt_enm_idx = (items.iter().enumerate().find_map(|(i, it)| it.no_def.then(|| i)))
         .or_else(|| items.iter().enumerate().find_map(|(i, it)| it.it_enum.then(|| i)));
     let ((mut enm, mut err), enm_i, no_def) =
@@ -829,29 +1023,15 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                 .find_map(|it| (!it.it_enum && !it.name.is_empty()).then(|| it.name.clone()))
                 .unwrap_or_default();
             let span = Span::call_site();
-            let enm_sp = enm_i.as_ref().unwrap().span();
             let item_ts = TokenStream::from_iter([
                 Ident(Idn::new(&item_n, span)),
                 Punct(Pn::new(':', Spacing::Joint)),
                 Punct(Pn::new(':', Spacing::Alone)),
             ]);
             let sm = Punct(Pn::new(';', Spacing::Alone));
-            let mut enm_i = if no_def { enm_i } else { None };
             let mut fn_ts = TokenStream::new();
-            for var in enm.iter_mut() {
-                if no_def {
-                    fn_ts.extend([
-                        Ident(if enm_i.is_some() {
-                            enm_i.take().unwrap()
-                        } else {
-                            Idn::new(&enm_n, span)
-                        }),
-                        Punct(Pn::new(':', Spacing::Joint)),
-                        Punct(Pn::new(':', Spacing::Alone)),
-                    ]);
-                    fn_ts.extend([Ident(var.ident.clone().unwrap()), sm.clone()]);
-                }
-                if !item_n.is_empty() {
+            if !item_n.is_empty() {
+                for var in enm.iter_mut() {
                     for (k, m) in var.methods.iter_mut() {
                         if !mmap.get(k).map_or(false, |&v| v) {
                             fn_ts.extend(if let Some(trait_i) = m.opt_trait.take() {
@@ -872,21 +1052,41 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                     }
                 }
             }
-            if !fn_ts.is_empty() {
+            if no_def || !fn_ts.is_empty() {
                 res_ts.extend(
                     TokenStream::from_str(&format!(
                         r##"
                     #[allow(unused)]
                     #[doc(hidden)]
-                    mod impl_match_semantic_{}_{}_{}"##,
-                        enm_n.to_lowercase(),
+                    mod impl_match_semantic_{}_{}"##,
                         item_n.to_lowercase(),
-                        format!("{enm_sp:?}{last_sp:?}").replace(|ch: char| !ch.is_numeric(), "")
+                        mmap.keys().next().unwrap_or(&String::new()).replace(['(', ')', ' '], ""),
                     ))
                     .unwrap(),
                 );
-                let mut mod_ts = TokenStream::from_str("use super::*; fn h()").unwrap();
-                mod_ts.extend(once(Group(Gr::new(Brace, fn_ts))));
+                let mut mod_ts = TokenStream::from_str("use super::*;").unwrap();
+                if no_def {
+                    mod_ts.extend([
+                        Ident(Idn::new("use", span)),
+                        Ident(enm_i.unwrap()),
+                        Punct(Pn::new(':', Spacing::Joint)),
+                        Punct(Pn::new(':', Spacing::Alone)),
+                        Group(Gr::new(
+                            Brace,
+                            TokenStream::from_iter(enm.iter().flat_map(|v| {
+                                [
+                                    Ident(v.ident.as_ref().unwrap().clone()),
+                                    Punct(Pn::new(',', Spacing::Alone)),
+                                ]
+                            })),
+                        )),
+                        sm.clone(),
+                    ]);
+                }
+                if !fn_ts.is_empty() {
+                    mod_ts.extend(TokenStream::from_str("fn methods()").unwrap());
+                    mod_ts.extend(once(Group(Gr::new(Brace, fn_ts))));
+                }
                 res_ts.extend(once(Group(Gr::new(Brace, mod_ts))));
             }
         }

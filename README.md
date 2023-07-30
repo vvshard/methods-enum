@@ -1,10 +1,10 @@
 [![crates.io](https://img.shields.io/crates/v/methods-enum.svg)](https://crates.io/crates/methods-enum) [![Docs.rs](https://img.shields.io/docsrs/methods-enum)](https://docs.rs/methods-enum)
 
-*State* design pattern and other dynamic polymorphism are often solved with dyn Trait objects.
+State design pattern and other dynamic polymorphism are often solved with dyn Trait objects.
 
 **enum-matching** is simpler and more efficient than Trait objects, but using it directly in this situation will "smear" the state abstraction over interface methods.
 
-The proposed macros [**`impl_match!{...}`**](#impl_match-macro) and [**`#[gen(...)]`**](#gen-macro) provide two different ways of enum-matching with a visual grouping of methods by `enum` variants, which makes it convenient to use enum-matching in *state* / dynamic polymorphism problems.
+The proposed macros [**`impl_match!{...}`**](#impl_match-macro) and [**`#[gen(...)]`**](#gen-macro) provide two different ways of enum-matching with a visual grouping of methods by `enum` variants, which makes it convenient to use enum-matching in state design pattern and dynamic polymorphism problems.
 ___
 # impl_match! macro
 This is an item-like macro that wraps a state `enum` declaration and one or more `impl` blocks, allowing you to write match-expressions without match-arms in the method bodies of these `impl`, writing the match-arms into the corresponding `enum` variants.
@@ -75,22 +75,28 @@ Thus, you see all the code that the compiler will receive, but in a form structu
 Example with `Display` - below.
 
 - An example of a method with generics is also shown there: `mark_obj<T: Display>()`.   
-Working with [traits]() and [generics]() has some non-critical features, which are mentioned in the [documentation]().
+There is an uncritical nuance with generics, described in the [documentation]().
+
+- `@` - character before the `enum` declaration, in the example: `@enum Shape {...` disables passing to the `enum` compiler: only match-arms will be processed. This may be required if this `enum` is already declared elsewhere in the code, including outside the macro.
 
 - If you are using `enum` with fields, then before the name of the method that uses them, specify the template for decomposing fields into variables (the IDE[^rust_analyzer] works completely correctly with such variables). The template to decompose is accepted by downstream methods of the same enumeration variant and can be reassigned. Example:
 ```rust
-methods_enum::impl_match! {
+methods_enum::impl_match! { 
 
 enum Shape {
+//     Circle(f64), // if you uncomment or remove these 4 lines, everything will work the same
+//     Rectangle { width: f64, height: f64 },
+// }
+// @enum Shape {
     Circle(f64): (radius)
         zoom(scale)    { Shape::Circle(radius * scale) }
         to_rect()      { *self = Shape::Rectangle { width: radius * 2., height: radius * 2.} }
-        fmt(f) Display { write!(f, "Circle(R: {radius:.1})") }; (..) // `(..)` - template reset for mark_obj()
+        fmt(f) Display { write!(f, "Circle(R: {radius:.1})") }; (..) // template reset
         mark_obj(obj)  { format!("⭕ {}", obj) }
     ,
     Rectangle { width: f64, height: f64 }: { width: w, height }
         zoom(scale)    { Shape::Rectangle { width: w * scale, height: height * scale } }
-        fmt(f) Display { write!(f, "Rectangle(W: {w:.1}, H: {height:.1})") }; {..} // `{..}` - template reset for mark_obj()
+        fmt(f) Display { write!(f, "Rectangle(W: {w:.1}, H: {height:.1})") }; {..}
         mark_obj(obj)  { format!("⏹️ {}", obj) }
 }
 impl Shape {
@@ -117,11 +123,10 @@ pub fn main() {
     assert_eq!(circle.to_rect().to_string(), rect.to_string());
 }
 ```
-- Features not included in the examples:
-    - `@` - character before the `enum` declaration, eg: `@enum State {...` disables passing to the `enum` compiler: only match-arms will be processed. This may be required if this `enum` is already declared elsewhere in the code.
-    - Debug flags. They can be placed through spaces in parentheses at the very beginning of the macro, eg: `impl_match! { (ns ) ...`
-        - flag `ns` or `sn` in any case - replaces the semantic binding of the names of methods and traits in `enum` variants with a compilation error if they are incorrectly specified.
-        - flag `!` - causes a compilation error in the same case, but without removing the semantic binding.
+- Debug flags. They can be placed through spaces in parentheses at the very beginning of the macro,   
+eg: `impl_match! { (ns ) `...
+    - flag `ns` or `sn` in any case - replaces the semantic binding of the names of methods and traits in `enum` variants with a compilation error if they are incorrectly specified.
+    - flag `!` - causes a compilation error in the same case, but without removing the semantic binding.
 
 
 ## Links
@@ -150,7 +155,7 @@ pub fn main() {
 }
 ```
 with macro #[gen()] this is solved like this:
-```rust ignore
+```rust
 mod blog {
     enum State {
         Draft,
@@ -228,3 +233,4 @@ The benefit of gen() is that it allows you to see the full match-expression and 
 ___
 # License
 MIT or Apache-2.0 license of your choice.
+___
