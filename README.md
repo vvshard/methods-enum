@@ -71,8 +71,7 @@ Thus, you see all the code that the compiler will receive, but in a form structu
 
 ## Other features
 
-- You can also include `impl (Trait) for ...` blocks in a macro. The name of the `Trait` (without the path) is specified in the enum before the corresponding arm-block.   
-Example with `Display` - below.
+- You can also include `impl (Trait) for ...` blocks in a macro. The name of the `Trait` (without the path) is specified in the enum before the corresponding arm-block. Example with `Display` - below.
 
 - An example of a method with generics is also shown there: `mark_obj<T: Display>()`.   
 There is an uncritical nuance with generics, described in the [documentation]().
@@ -87,7 +86,7 @@ enum Shape<'a> {
 //     Circle(f64, &'a str), // if you uncomment or remove these 4 lines it will work the same
 //     Rectangle { width: f64, height: f64 },
 // }
-// @enum Shape {
+// @enum Shape<'a> {
     Circle(f64, &'a str): (radius, mark)
         zoom(scale)    { Shape::Circle(radius * scale, mark) }
         fmt(f) Display { write!(f, "{mark}(R: {radius:.1})") }; (_, mark) // template change

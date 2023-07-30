@@ -487,7 +487,8 @@ pub fn gen(attr_ts: TokenStream, item_ts: TokenStream) -> TokenStream {
 
 // region: region impl_match
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::mem;
 
 struct Flags {
@@ -822,7 +823,7 @@ impl Var {
                         }
                     }
                     Punct(p) if p.as_char() == ',' => {
-                        if !var.ident.is_none() {
+                        if var.ident.is_some() {
                             item.group.extend(once(Punct(p)));
                             enm.push(mem::take(&mut var));
                         }
@@ -903,8 +904,7 @@ impl Var {
 ///
 /// ## Other features
 ///
-/// - You can also include `impl (Trait) for ...` blocks in a macro. The name of the `Trait` (without the path) is specified in the enum before the corresponding arm-block.   
-/// Example with `Display` - below.
+/// - You can also include `impl (Trait) for ...` blocks in a macro. The name of the `Trait` (without the path) is specified in the enum before the corresponding arm-block. Example with `Display` - below.
 ///
 /// - An example of a method with generics is also shown there: `mark_obj<T: Display>()`.   
 /// There is an uncritical nuance with generics, described in the [documentation]().
@@ -915,48 +915,48 @@ impl Var {
 /// ```rust
 /// methods_enum::impl_match! {
 ///
-/// enum Shape {
-/// //     Circle(f64), // if you uncomment or remove these 4 lines, everything will work the same
+/// enum Shape<'a> {
+/// //     Circle(f64, &'a str), // if you uncomment or remove these 4 lines it will work the same
 /// //     Rectangle { width: f64, height: f64 },
 /// // }
-/// // @enum Shape {
-///     Circle(f64): (radius)
-///         zoom(scale)    { Shape::Circle(radius * scale) }
-///         to_rect()      { *self = Shape::Rectangle { width: radius * 2., height: radius * 2.} }
-///         fmt(f) Display { write!(f, "Circle(R: {radius:.1})") }; (..) // template reset
-///         mark_obj(obj)  { format!("⭕ {}", obj) }
+/// // @enum Shape<'a> {
+///     Circle(f64, &'a str): (radius, mark)
+///         zoom(scale)    { Shape::Circle(radius * scale, mark) }
+///         fmt(f) Display { write!(f, "{mark}(R: {radius:.1})") }; (_, mark) // template change
+///         mark_obj(obj)  { format!("{} {}", mark, obj) };         (radius, _)
+///         to_rect()      { *self = Shape::Rectangle { width: radius * 2., height: radius * 2.,} }
 ///     ,
-///     Rectangle { width: f64, height: f64 }: { width: w, height }
+///     Rectangle { width: f64, height: f64}: { width: w, height}
 ///         zoom(scale)    { Shape::Rectangle { width: w * scale, height: height * scale } }
 ///         fmt(f) Display { write!(f, "Rectangle(W: {w:.1}, H: {height:.1})") }; {..}
 ///         mark_obj(obj)  { format!("⏹️ {}", obj) }
 /// }
-/// impl Shape {
+/// impl<'a> Shape<'a> {
 ///     fn zoom(&mut self, scale: f64)                      ~{ *self = match *self }
-///     fn to_rect(&mut self) -> &mut Shape                 ~{ match *self {}; self }
+///     fn to_rect(&mut self) -> &mut Self                  ~{ match *self {}; self }
 ///     fn mark_obj<T: Display>(&self, obj: &T) -> String   ~{ match self }
 /// }
 ///
 /// use std::fmt::{Display, Formatter, Result};
 ///
-/// impl Display for Shape{
+/// impl<'a> Display for Shape<'a>{
 ///     fn fmt(&self, f: &mut Formatter<'_>) -> Result      ~{ match self }
 /// }
 ///
-/// } //impl_match!
+/// } // <--impl_match!
 ///
 /// pub fn main() {
 ///     let mut rect = Shape::Rectangle { width: 10., height: 10. };
 ///     assert_eq!(format!("{rect}"), "Rectangle(W: 10.0, H: 10.0)");
 ///     rect.zoom(3.);
-///     let mut circle = Shape::Circle(15.);
-///     assert_eq!(rect.mark_obj(&circle), "⏹️ Circle(R: 15.0)");
+///     let mut circle = Shape::Circle(15., "⭕");
+///     assert_eq!(circle.mark_obj(&rect.mark_obj(&circle)), "⭕ ⏹️ ⭕(R: 15.0)");
 ///     // "Rectangle(W: 30.0, H: 30.0)"
 ///     assert_eq!(circle.to_rect().to_string(), rect.to_string());
 /// }
 /// ```
-/// - Debug flags. They can be placed through spaces in parentheses at the very beginning of the macro, eg:   
-/// `impl_match! { (ns ) `...
+/// - Debug flags. They can be placed through spaces in parentheses at the very beginning of the macro,   
+/// eg: `impl_match! { (ns ) `...
 ///     - flag `ns` or `sn` in any case - replaces the semantic binding of the names of methods and traits in `enum` variants with a compilation error if they are incorrectly specified.
 ///     - flag `!` - causes a compilation error in the same case, but without removing the semantic binding.
 ///
@@ -1008,7 +1008,7 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                                 Ident(enm_i.as_ref().unwrap_or(&empty_id).clone()),
                                 Punct(Pn::new(':', Spacing::Joint)),
                                 Punct(Pn::new(':', Spacing::Alone)),
-                                Ident(var.ident.as_ref().unwrap_or(&empty_id).clone()),
+                                Ident(var.ident.as_ref().unwrap().clone()),
                             ]));
                             match_block.extend(fields.map(Group));
                             match_block.extend(fat_arrow.clone());
@@ -1024,7 +1024,7 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
         }
     }
 
-    // semantic+highlighting var methods / traits and @enum
+    // semantic+highlighting var methods / traits
     if !flags.no_semnt {
         if enm_i.is_some() {
             let item_n = (items.iter())
@@ -1061,22 +1061,20 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                 }
             }
             if !fn_ts.is_empty() {
+                let mut hasher = DefaultHasher::new();
+                (item_n + "-" + mmap.keys().next().unwrap_or(&String::new())).hash(&mut hasher);
                 res_ts.extend(
                     TokenStream::from_str(&format!(
-                        r##"
-                    #[allow(unused)]
-                    #[doc(hidden)]
-                    mod impl_match_semantic_{}_{}"##,
-                        item_n.to_lowercase(),
-                        mmap.keys().next().unwrap_or(&String::new()).replace(['(', ')', ' '], ""),
+                        r##"#[allow(unused)]
+                            #[doc(hidden)]
+                            #[doc = " Semantic bindings for impl_match! macro"]
+                            mod _{}"##,
+                        hasher.finish()
                     ))
                     .unwrap(),
                 );
-                let mut mod_ts = TokenStream::from_str("use super::*;").unwrap();
-                if !fn_ts.is_empty() {
-                    mod_ts.extend(TokenStream::from_str("fn methods()").unwrap());
-                    mod_ts.extend(once(Group(Gr::new(Brace, fn_ts))));
-                }
+                let mut mod_ts = TokenStream::from_str("use super::*; fn methods()").unwrap();
+                mod_ts.extend(once(Group(Gr::new(Brace, fn_ts))));
                 res_ts.extend(once(Group(Gr::new(Brace, mod_ts))));
             }
         }
