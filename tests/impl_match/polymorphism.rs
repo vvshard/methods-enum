@@ -1,4 +1,4 @@
-methods_enum::impl_match! { (ns)
+methods_enum::impl_match! {
 
 enum Shape {
 //     Circle(f64), // if you uncomment or remove these 4 lines, everything will work the same

@@ -719,7 +719,7 @@ struct Var {
     methods: HashMap<String, VarMeth>,
 }
 impl Var {
-    fn vec(item: &mut Item, enm_n: &String) -> (Vec<Var>, String) {
+    fn vec(item: &mut Item) -> (Vec<Var>, String) {
         let mut iit = mem::take(&mut item.group).into_iter();
         let mut enm: Vec<Var> = Vec::new();
         let mut err = String::new();
@@ -772,7 +772,7 @@ impl Var {
                                 _ => None,
                             };
                             let in_enum_var =
-                                format!("in `enum {enm_n}::{}`", var.ident.as_ref().unwrap());
+                                format!("in `enum {}::{}`", item.name, var.ident.as_ref().unwrap());
                             match opt_tt {
                                 Some(Group(block)) if block.delimiter() == Brace => {
                                     let name = (opt_trait.as_ref())
@@ -964,15 +964,14 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     let (mut items, mmap, flags) = Item::vec(input_ts);
     let opt_enm_idx = (items.iter().enumerate().find_map(|(i, it)| it.no_def.then(|| i)))
         .or_else(|| items.iter().enumerate().find_map(|(i, it)| it.it_enum.then(|| i)));
-    let ((mut enm, mut err), enm_i, no_def) =
-        opt_enm_idx.map_or(((Vec::new(), String::new()), None, false), |i| {
+    let ((mut enm, mut err), enm_i) =
+        opt_enm_idx.map_or(((Vec::new(), String::new()), None), |i| {
             let enm_it = items.get_mut(i).unwrap();
-            let enm_i = enm_it.ident.take();
-            (Var::vec(enm_it, &enm_i.as_ref().unwrap().to_string()), enm_i, enm_it.no_def)
+            (Var::vec(enm_it), enm_it.ident.take())
         });
-    let enm_n = enm_i.as_ref().map_or(String::new(), |i| i.to_string());
     let fat_arrow = TokenStream::from_str("=>").unwrap();
     let empty_gr = Gr::new(Brace, TokenStream::new());
+    let empty_id = Idn::new("_", Span::call_site());
     let dd = TokenStream::from_str("..").unwrap();
     let dd_gr = |g: &Gr| Gr::new(g.delimiter(), dd.clone());
 
@@ -1000,8 +999,12 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                                     (var.fields.as_ref().map(dd_gr), m.dflt_arm.clone().unwrap())
                                 }
                             };
-                            let var_n = var.ident.clone().unwrap();
-                            match_block.extend(TokenStream::from_str(&format!("{enm_n}::{var_n}")));
+                            match_block.extend(TokenStream::from_iter([
+                                Ident(enm_i.as_ref().unwrap_or(&empty_id).clone()),
+                                Punct(Pn::new(':', Spacing::Joint)),
+                                Punct(Pn::new(':', Spacing::Alone)),
+                                Ident(var.ident.as_ref().unwrap_or(&empty_id).clone()),
+                            ]));
                             match_block.extend(fields.map(Group));
                             match_block.extend(fat_arrow.clone());
                             match_block.extend(once(Group(arm_block)));
@@ -1052,7 +1055,7 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                     }
                 }
             }
-            if no_def || !fn_ts.is_empty() {
+            if !fn_ts.is_empty() {
                 res_ts.extend(
                     TokenStream::from_str(&format!(
                         r##"
@@ -1065,24 +1068,6 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                     .unwrap(),
                 );
                 let mut mod_ts = TokenStream::from_str("use super::*;").unwrap();
-                if no_def {
-                    mod_ts.extend([
-                        Ident(Idn::new("use", span)),
-                        Ident(enm_i.unwrap()),
-                        Punct(Pn::new(':', Spacing::Joint)),
-                        Punct(Pn::new(':', Spacing::Alone)),
-                        Group(Gr::new(
-                            Brace,
-                            TokenStream::from_iter(enm.iter().flat_map(|v| {
-                                [
-                                    Ident(v.ident.as_ref().unwrap().clone()),
-                                    Punct(Pn::new(',', Spacing::Alone)),
-                                ]
-                            })),
-                        )),
-                        sm.clone(),
-                    ]);
-                }
                 if !fn_ts.is_empty() {
                     mod_ts.extend(TokenStream::from_str("fn methods()").unwrap());
                     mod_ts.extend(once(Group(Gr::new(Brace, fn_ts))));
@@ -1093,8 +1078,9 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
     }
 
     // errors
-    let mset: HashSet<String> = HashSet::from_iter(mmap.into_keys());
-    if !enm_n.is_empty() {
+    if enm_i.is_some() {
+        let mset: HashSet<String> = HashSet::from_iter(mmap.into_keys());
+        let enm_n = enm_i.as_ref().unwrap().to_string();
         for var in enm.iter() {
             for name in var.methods.keys() {
                 if !mset.contains(name) {

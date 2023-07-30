@@ -46,7 +46,7 @@ fn test_main() {
 #[ignore]
 #[test]
 /// Run - from the pop-up menu of the rust-analyzer "Run Test".
-fn main_t() {
+fn main_ignor() {
     println!("---- main_t() ----\n");
     // gen::state::state_machine::main();
     impl_match::state::state_machine::main();
