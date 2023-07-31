@@ -912,7 +912,7 @@ impl Var {
 /// - You can also include `impl (Trait) for ...` blocks in a macro. The name of the `Trait` (without the path) is specified in the enum before the corresponding arm-block. Example with `Display` - below.
 ///
 /// - An example of a method with generics is also shown there: `mark_obj<T: Display>()`.   
-/// There is an uncritical nuance with generics, described in the [documentation]().
+/// There is an uncritical nuance with generics, described in the [documentation](impl_match#currently-this-mode-has-the-following-non-critical-restrictions).
 ///
 /// - `@` - character before the `enum` declaration, in the example: `@enum Shape {...` disables passing to the `enum` compiler: only match-arms will be processed. This may be required if this `enum` is already declared elsewhere in the code, including outside the macro.
 ///
