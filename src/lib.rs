@@ -511,7 +511,13 @@ impl Item {
         if !self.no_def {
             self.prev_ts.extend(once(tt))
         }
-        new_state
+        if let Vis = new_state {
+            self.ident = None;
+            self.name = String::new();
+            Name
+        } else {
+            new_state
+        }
     }
 
     fn vec(ts: TokenStream) -> (Vec<Item>, HashMap<String, bool>, Flags) {
@@ -549,13 +555,13 @@ impl Item {
                 (Start | Args, Punct(p), 0) if p.as_char() == '@' => {
                     item.it_enum = true;
                     item.no_def = true;
-                    Name
+                    item.prev_extend(Punct(p), Vis)
                 }
                 (Start | Args, Ident(id), 0) => match &id.to_string()[..] {
-                    "impl" => item.prev_extend(Ident(id), Name),
+                    "impl" => item.prev_extend(Ident(id), Vis),
                     "enum" => {
                         item.it_enum = true;
-                        item.prev_extend(Ident(id), Name)
+                        item.prev_extend(Ident(id), Vis)
                     }
                     _ => item.prev_extend(Ident(id), Start),
                 },
@@ -568,26 +574,25 @@ impl Item {
                     item.prev_extend(Ident(id), st)
                 }
                 (Name | Out, Group(gr), 0) if gr.delimiter() == Brace => {
-                    if item.it_enum {
-                        item.group = gr.stream();
-                        item.name =
-                            item.ident.as_ref().map_or_else(|| String::new(), |id| id.to_string());
-                        items.push(mem::take(&mut item));
-                    } else {
-                        if item.name.is_empty() {
-                            item.name =
-                                item.ident.map_or_else(|| String::new(), |id| id.to_string());
-                            item.ident = None;
-                        }
-                        if impl_n.is_empty() || impl_n == item.name {
-                            if impl_n.is_empty() {
-                                impl_n = item.name.clone();
-                            }
-                            item.fill_methods(gr.stream(), &mut mmap);
+                    if item.ident.is_some() {
+                        if item.it_enum {
+                            item.group = gr.stream();
+                            item.name = item.ident.as_ref().unwrap().to_string();
                             items.push(mem::take(&mut item));
                         } else {
-                            item.name = String::new();
-                            item.prev_ts.extend(once(Group(gr)));
+                            if item.name.is_empty() {
+                                item.name = item.ident.as_ref().unwrap().to_string();
+                                item.ident = None;
+                            }
+                            if impl_n.is_empty() || impl_n == item.name {
+                                if impl_n.is_empty() {
+                                    impl_n = item.name.clone();
+                                }
+                                item.fill_methods(gr.stream(), &mut mmap);
+                                items.push(mem::take(&mut item));
+                            } else {
+                                item.prev_ts.extend(once(Group(gr)));
+                            }
                         }
                     }
                     Start
@@ -976,7 +981,6 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
         });
     let fat_arrow = TokenStream::from_str("=>").unwrap();
     let empty_gr = Gr::new(Brace, TokenStream::new());
-    let empty_id = Idn::new("_", Span::call_site());
     let dd = TokenStream::from_str("..").unwrap();
     let dd_gr = |g: &Gr| Gr::new(g.delimiter(), dd.clone());
 
@@ -1005,7 +1009,7 @@ pub fn impl_match(input_ts: TokenStream) -> TokenStream {
                                 }
                             };
                             match_block.extend(TokenStream::from_iter([
-                                Ident(enm_i.as_ref().unwrap_or(&empty_id).clone()),
+                                Ident(enm_i.as_ref().unwrap().clone()),
                                 Punct(Pn::new(':', Spacing::Joint)),
                                 Punct(Pn::new(':', Spacing::Alone)),
                                 Ident(var.ident.as_ref().unwrap().clone()),
