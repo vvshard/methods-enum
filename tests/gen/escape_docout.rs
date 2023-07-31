@@ -2,12 +2,7 @@ struct Foo {
     x: i32,
 }
 
-#[test]
-fn test_main(){
-    main();
-}
-
-fn main() {
+pub fn main() {
     let foo = Foo { x: 1 };
 
     assert_eq!(foo.st1(), "");

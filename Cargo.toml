@@ -1,15 +1,15 @@
 [package]
 name = "methods-enum"
-version = "0.2.4"
+version = "0.3.0"
 edition = "2021"
 authors = ["Vladimir Shardinov <vvshard@gmail.com>"]
-description = "Attribute-like macro for 'state' and 'state machine' design patterns, without dyn Trait (based on generated enum)."
+description = "Two macros for easy implementation of 'state' design pattern and other dynamic polymorphism using enum instead of dyn Trait"
 documentation = "https://docs.rs/methods-enum"
 repository = "https://github.com/vvshard/methods-enum"
 license = "MIT OR Apache-2.0"
 categories = ["rust-patterns"]
-keywords = ["methods", "enum", "state", "machine", "pattern"]
-exclude = ["/doc"]
+keywords = ["methods", "enum", "state", "polymorphism", "dyn"]
+exclude = ["/doc", "/tests"]
 
 [lib]
 proc-macro = true
