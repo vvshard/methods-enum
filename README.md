@@ -74,7 +74,7 @@ Thus, you see all the code that the compiler will receive, but in a form structu
 - You can also include `impl (Trait) for ...` blocks in a macro. The name of the `Trait` (without the path) is specified in the enum before the corresponding arm-block. Example with `Display` - below.
 
 - An example of a method with generics is also shown there: `mark_obj<T: Display>()`.   
-There is an uncritical nuance with generics, described in the [documentation]().
+There is an uncritical nuance with generics, described in the [documentation](impl_match!#currently-this-mode-has-the-following-non-critical-restrictions).
 
 - `@` - character before the `enum` declaration, in the example: `@enum Shape {...` disables passing to the `enum` compiler: only match-arms will be processed. This may be required if this `enum` is already declared elsewhere in the code, including outside the macro.
 
@@ -83,14 +83,14 @@ There is an uncritical nuance with generics, described in the [documentation]().
 methods_enum::impl_match! {
 
 enum Shape<'a> {
-//     Circle(f64, &'a str), // if you uncomment or remove these 4 lines it will work the same
-//     Rectangle { width: f64, height: f64 },
+//     Circle(f64, &'a str),                  // if you uncomment or remove these 4 lines 
+//     Rectangle { width: f64, height: f64 }, //    it will work the same
 // }
 // @enum Shape<'a> {
     Circle(f64, &'a str): (radius, mark)
-        zoom(scale)    { Shape::Circle(radius * scale, mark) }
-        fmt(f) Display { write!(f, "{mark}(R: {radius:.1})") }; (_, mark) // template change
-        mark_obj(obj)  { format!("{} {}", mark, obj) };         (radius, _)
+        zoom(scale)    { Shape::Circle(radius * scale, mark) }      // template change
+        fmt(f) Display { write!(f, "{mark}(R: {radius:.1})") };     (_, mark)
+        mark_obj(obj)  { format!("{} {}", mark, obj) };             (radius, _)
         to_rect()      { *self = Shape::Rectangle { width: radius * 2., height: radius * 2.,} }
     ,
     Rectangle { width: f64, height: f64}: { width: w, height}
@@ -130,9 +130,9 @@ eg: `impl_match! { (ns ) `...
 
 ## Links
 
-- [A detailed description of the `impl_match!` macro - in the documentation]().
+- [A detailed description of the `impl_match!` macro - in the documentation](impl_match!#impl_match-macro-details).
 
-- [Code examples with `impl_match!`]().
+- [Code examples with `impl_match!`](https://github.com/vvshard/methods-enum/tree/master/tests/impl_match).
 ___
 # gen() macro
 
@@ -153,7 +153,7 @@ pub fn main() {
     assert_eq!("I ate a salad for lunch today", post.content());
 }
 ```
-with macro #[gen()] this is solved like this:
+with macro `#[gen()]` this is solved like this:
 ```rust
 mod blog {
     enum State {
@@ -223,11 +223,11 @@ where:
 
 ## Links
 
-- [Detailed description of macro `#[gen(....)]` - in documentation]().
+- [Detailed description of macro `#[gen(....)]` - in documentation](macro@gen#gen-macro-details-and-use-cases).
 
-- [Code examples with `#[gen(....)]`]().
+- [Code examples with `#[gen(....)]`](https://github.com/vvshard/methods-enum/tree/master/tests/impl_match).
 ___
-The gen() macro loses out to impl_match! in terms of [restrictions]() and ease of working with methods and their output values.
+The gen() macro loses out to impl_match! in terms of [restrictions](macro@gen#restrictions) and ease of working with methods and their output values.
 The benefit of gen() is that it allows you to see the full match-expression and handle more complex logic, including those with non-trivial incoming expressions, match guards, and nested matches from substate enums.
 ___
 # License

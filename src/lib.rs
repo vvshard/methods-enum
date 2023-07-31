@@ -242,7 +242,7 @@ fn ts_to_doc(ts: &TokenStream) -> String {
 /// }
 /// ```
 /// with macro #[gen()] this is solved like this:
-/// ```rust ignore
+/// ```rust
 /// mod blog {
 ///     enum State {
 ///         Draft,
@@ -291,8 +291,17 @@ fn ts_to_doc(ts: &TokenStream) -> String {
 ///
 /// The macro duplicates the output for the compiler in the doc-comments.
 /// Therefore, in the IDE[^rust_analyzer], you can always see the declaration of the generated `enum` and the generated method bodies.
+/// 
+/// [^rust_analyzer]: *rust-analyzer may not expand proc-macro when running under nightly or old rust edition.* In this case it is recommended to set in its settings: [`"rust-analyzer.server.extraEnv": { "RUSTUP_TOOLCHAIN": "stable" }`](https://rust-analyzer.github.io/manual.html#toolchain)
 ///
-/// ## [gen macro details and use cases](gen#gen-macro-details-and-use-cases)
+/// ## Restrictions
+/// 
+/// - The macro does not work on generic methods (including lifetime generics). As a general rule, methods with <...> before the argument list, with `where` before the body, or `impl` in the argument type declaration will be silently ignored for inclusion in `enum`.
+/// - The macro will ignore signatures with destructured arguments.
+/// - The macro ignores also methods with a `mut` prefix in front of a method argument name (except  `self`): move such an argument to a mut variable in the body of the handler method.
+/// - The `self` form of all methods of the same `enum` must be the same and match the `self` form of the handler method. As a rule, it is either `&mut self` everywhere or `self` in methods + `mut self` in the handler method. However, it is allowed to group method signatures into multiple `impl` blocks with different `enum` and handler methods. See example below.
+/// 
+/// ## [gen macro details and use cases](macro@gen#gen-macro-details-and-use-cases)
 ///
 #[doc = include_str!("gen_details.md")]
 #[proc_macro_attribute]
@@ -906,13 +915,13 @@ impl Var {
 /// **rust-analyzer**[^rust_analyzer] perfectly defines identifiers in all blocks. All hints, auto-completions and replacements in the IDE are processed in match-arm displayed in `enum` as if they were in their native match-block. Plus, the "inline macro" command works in the IDE, displaying the resulting code.
 ///
 /// [^rust_analyzer]: *rust-analyzer may not expand proc-macro when running under nightly or old rust edition.* In this case it is recommended to set in its settings: [`"rust-analyzer.server.extraEnv": { "RUSTUP_TOOLCHAIN": "stable" }`](https://rust-analyzer.github.io/manual.html#toolchain)
-///
+/// 
 /// ## Other features
 ///
 /// - You can also include `impl (Trait) for ...` blocks in a macro. The name of the `Trait` (without the path) is specified in the enum before the corresponding arm-block. Example with `Display` - below.
 ///
 /// - An example of a method with generics is also shown there: `mark_obj<T: Display>()`.   
-/// There is an uncritical nuance with generics, described in the [documentation](impl_match#currently-this-mode-has-the-following-non-critical-restrictions).
+/// There is an uncritical nuance with generics, described in the [documentation](impl_match!#currently-this-mode-has-the-following-non-critical-restrictions).
 ///
 /// - `@` - character before the `enum` declaration, in the example: `@enum Shape {...` disables passing to the `enum` compiler: only match-arms will be processed. This may be required if this `enum` is already declared elsewhere in the code, including outside the macro.
 ///
@@ -921,14 +930,14 @@ impl Var {
 /// methods_enum::impl_match! {
 ///
 /// enum Shape<'a> {
-/// //     Circle(f64, &'a str), // if you uncomment or remove these 4 lines it will work the same
-/// //     Rectangle { width: f64, height: f64 },
+/// //     Circle(f64, &'a str),                  // if you uncomment or remove these 4 lines
+/// //     Rectangle { width: f64, height: f64 }, //    it will work the same
 /// // }
 /// // @enum Shape<'a> {
 ///     Circle(f64, &'a str): (radius, mark)
-///         zoom(scale)    { Shape::Circle(radius * scale, mark) }
-///         fmt(f) Display { write!(f, "{mark}(R: {radius:.1})") }; (_, mark) // template change
-///         mark_obj(obj)  { format!("{} {}", mark, obj) };         (radius, _)
+///         zoom(scale)    { Shape::Circle(radius * scale, mark) }      // template change
+///         fmt(f) Display { write!(f, "{mark}(R: {radius:.1})") };     (_, mark) 
+///         mark_obj(obj)  { format!("{} {}", mark, obj) };             (radius, _)
 ///         to_rect()      { *self = Shape::Rectangle { width: radius * 2., height: radius * 2.,} }
 ///     ,
 ///     Rectangle { width: f64, height: f64}: { width: w, height}
@@ -965,7 +974,7 @@ impl Var {
 ///     - flag `ns` or `sn` in any case - replaces the semantic binding of the names of methods and traits in `enum` variants with a compilation error if they are incorrectly specified.
 ///     - flag `!` - causes a compilation error in the same case, but without removing the semantic binding.
 ///
-/// ## [impl_match macro details](impl_match#impl_match-macro-details)
+/// ## [impl_match macro details](impl_match!#impl_match-macro-details)
 #[doc = include_str!("impl_match_details.md")]
 #[proc_macro]
 pub fn impl_match(input_ts: TokenStream) -> TokenStream {

@@ -1,12 +1,8 @@
-
 In the popup hint above the enum name:
 
 ![enum popup hint](https://github.com/vvshard/methods-enum/raw/master/doc/img_0_2/UsageExample_1.png)
 
 ![enum popup: bodies](https://github.com/vvshard/methods-enum/raw/master/doc/img_0_2/UsageExample_2.png)
-
-[^ide]: IDE support tested on 'rust-analyzer for VS Code v0.3' - everything works: autocomplete, highlighting, tooltips, transitions, renames.  
-*rust-analyzer may not expand proc-macro when running under nightly or old rust edition.* In this case it is recommended to set in its settings: [`"rust-analyzer.server.extraEnv": { "RUSTUP_TOOLCHAIN": "stable" }`](https://rust-analyzer.github.io/manual.html#toolchain)
 
 Alternatively, the entire result of a macro can be output to the console at compile time by setting the session environment variable M_ENUM_DBG to a value other than "0". PowerShell example:
 ```PowerShell
@@ -14,15 +10,6 @@ PS > $Env:M_ENUM_DBG=1
 PS > cargo build
 ```
 This is worth doing when the compiler messages are not clear and referring to the macro line , so that for debugging, replace the impl block along with the attribute with the output of the macro.
-
-## Restrictions
-
-- The macro does not work on generic methods (including lifetime generics). As a general rule, methods with <...> before the argument list, with `where` before the body, or `impl` in the argument type declaration will be silently ignored for inclusion in `enum`.
-- The macro will ignore signatures with destructured arguments.
-- The macro ignores also methods with a `mut` prefix in front of a method argument name (except  `self`): move such an argument to a mut variable in the body of the handler method.
-- The `self` form of all methods of the same `enum` must be the same and match the `self` form of the handler method. As a rule, it is either `&mut self` everywhere or `self` in methods + `mut self` in the handler method. However, it is allowed to group method signatures into multiple `impl` blocks with different `enum` and handler methods. See example below.
-
-## Details of the macro and use cases
 
 The macro reads only its impl block and only up to the name of the handler method. From which it follows that all method signatures for enum must be located before the handler method or in a separate from it impl block.
 
@@ -403,4 +390,4 @@ mod blog {
 ![enum popup: bodies](https://github.com/vvshard/methods-enum/raw/master/doc/img_0_2/OutNameRR_2.png)
 
 ___
-All examples as .rs files plus state_machine.rs file and from_book-task_and_2_result.rs file with extension to book task and using `Unit` are located in the directory: <https://github.com/vvshard/methods-enum/tree/master/tests>
+All examples as .rs files plus state_machine.rs file and from_book-task_and_2_result.rs file with extension to book task and using `Unit` are located in the directory: <https://github.com/vvshard/methods-enum/tree/master/tests/gen>

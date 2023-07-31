@@ -87,7 +87,7 @@ The `!` flag can be used to view errors found by the macro itself rather than by
 
 ## Links
 
-- [Code examples with `impl_match!` macro]().
+- [Code examples with `impl_match!` macro](https://github.com/vvshard/methods-enum/tree/master/tests/impl_match).
 
 
 
