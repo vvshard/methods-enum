@@ -225,7 +225,7 @@ where:
 
 - [Detailed description of macro `#[gen(....)]` - in documentation](https://docs.rs/methods-enum/latest/methods_enum/attr.gen.html#gen-macro-details-and-use-cases).
 
-- [Code examples with `#[gen(....)]`](https://github.com/vvshard/methods-enum/tree/master/tests/impl_match).
+- [Code examples with `#[gen(....)]`](https://github.com/vvshard/methods-enum/tree/master/tests/gen).
 ___
 The gen() macro loses out to impl_match! in terms of [restrictions](https://docs.rs/methods-enum/latest/methods_enum/attr.gen.html#restrictions) and ease of working with methods and their output values.
 The benefit of gen() is that it allows you to see the full match-expression and handle more complex logic, including those with non-trivial incoming expressions, match guards, and nested matches from substate enums.
