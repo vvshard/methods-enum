@@ -241,7 +241,7 @@ fn ts_to_doc(ts: &TokenStream) -> String {
 ///     assert_eq!("I ate a salad for lunch today", post.content());
 /// }
 /// ```
-/// with macro #[gen()] this is solved like this:
+/// with macro **`#[gen()]`** this is solved like this:
 /// ```rust
 /// mod blog {
 ///     enum State {
@@ -296,12 +296,12 @@ fn ts_to_doc(ts: &TokenStream) -> String {
 ///
 /// ## Restrictions
 /// 
-/// - The macro does not work on generic methods (including lifetime generics). As a general rule, methods with <...> before the argument list, with `where` before the body, or `impl` in the argument type declaration will be silently ignored for inclusion in `enum`.
+/// - The **`#[gen(...)]`** macro does not work on generic methods (including lifetime generics). As a general rule, methods with <...> before the argument list, with `where` before the body, or `impl` in the argument type declaration will be silently ignored for inclusion in `enum`.
 /// - The macro will ignore signatures with destructured arguments.
 /// - The macro ignores also methods with a `mut` prefix in front of a method argument name (except  `self`): move such an argument to a mut variable in the body of the handler method.
 /// - The `self` form of all methods of the same `enum` must be the same and match the `self` form of the handler method. As a rule, it is either `&mut self` everywhere or `self` in methods + `mut self` in the handler method. However, it is allowed to group method signatures into multiple `impl` blocks with different `enum` and handler methods. See example below.
 /// 
-/// ## [gen macro details and use cases](macro@gen#gen-macro-details-and-use-cases)
+/// ## [gen macro details and use cases](attr.gen.html#gen-macro-details-and-use-cases)
 ///
 #[doc = include_str!("gen_details.md")]
 #[proc_macro_attribute]
@@ -870,12 +870,7 @@ impl Var {
 ///     assert_eq!("I ate a salad for lunch today", post.content());
 /// }
 /// ```
-/// By setting in Cargo.toml:
-/// ```toml
-/// [dependencies]
-/// methods-enum = "0.3.0"
-/// ```
-/// this can be solved, for example, like this:
+/// with the macro **`impl_match!`** this is solved like this:
 /// ```rust
 /// mod blog {
 ///     pub struct Post {
@@ -974,7 +969,7 @@ impl Var {
 ///     - flag `ns` or `sn` in any case - replaces the semantic binding of the names of methods and traits in `enum` variants with a compilation error if they are incorrectly specified.
 ///     - flag `!` - causes a compilation error in the same case, but without removing the semantic binding.
 ///
-/// ## [impl_match macro details](impl_match!#impl_match-macro-details)
+/// ## [impl_match macro details](macro.impl_match.html#impl_match-macro-details)
 #[doc = include_str!("impl_match_details.md")]
 #[proc_macro]
 pub fn impl_match(input_ts: TokenStream) -> TokenStream {
