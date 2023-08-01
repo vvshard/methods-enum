@@ -26,7 +26,7 @@ pub fn main() {
 By setting in Cargo.toml:
 ```toml
 [dependencies]
-methods-enum = "0.3.0"
+methods-enum = "0.3.1"
 ```
 this can be solved, for example, like this:
 ```rust
@@ -74,7 +74,7 @@ Thus, you see all the code that the compiler will receive, but in a form structu
 - You can also include `impl (Trait) for ...` blocks in a macro. The name of the `Trait` (without the path) is specified in the enum before the corresponding arm-block. Example with `Display` - below.
 
 - An example of a method with generics is also shown there: `mark_obj<T: Display>()`.   
-There is an uncritical nuance with generics, described in the [documentation](impl_match!#currently-this-mode-has-the-following-non-critical-restrictions).
+There is an uncritical nuance with generics, described in the [documentation](https://docs.rs/methods-enum/latest/methods_enum/macro.impl_match.html#currently-this-mode-has-the-following-non-critical-restrictions).
 
 - `@` - character before the `enum` declaration, in the example: `@enum Shape {...` disables passing to the `enum` compiler: only match-arms will be processed. This may be required if this `enum` is already declared elsewhere in the code, including outside the macro.
 
@@ -130,7 +130,7 @@ eg: `impl_match! { (ns ) `...
 
 ## Links
 
-- [A detailed description of the `impl_match!` macro - in the documentation](impl_match!#impl_match-macro-details).
+- [A detailed description of the `impl_match!` macro - in the documentation](https://docs.rs/methods-enum/latest/methods_enum/macro.impl_match.html#impl_match-macro-details).
 
 - [Code examples with `impl_match!`](https://github.com/vvshard/methods-enum/tree/master/tests/impl_match).
 ___
@@ -223,11 +223,11 @@ where:
 
 ## Links
 
-- [Detailed description of macro `#[gen(....)]` - in documentation](macro@gen#gen-macro-details-and-use-cases).
+- [Detailed description of macro `#[gen(....)]` - in documentation](https://docs.rs/methods-enum/latest/methods_enum/attr.gen.html#gen-macro-details-and-use-cases).
 
 - [Code examples with `#[gen(....)]`](https://github.com/vvshard/methods-enum/tree/master/tests/impl_match).
 ___
-The gen() macro loses out to impl_match! in terms of [restrictions](macro@gen#restrictions) and ease of working with methods and their output values.
+The gen() macro loses out to impl_match! in terms of [restrictions](https://docs.rs/methods-enum/latest/methods_enum/attr.gen.html#restrictions) and ease of working with methods and their output values.
 The benefit of gen() is that it allows you to see the full match-expression and handle more complex logic, including those with non-trivial incoming expressions, match guards, and nested matches from substate enums.
 ___
 # License
