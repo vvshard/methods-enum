@@ -26,7 +26,7 @@ pub fn main() {
 By setting in Cargo.toml:
 ```toml
 [dependencies]
-methods-enum = "0.3.1"
+methods-enum = "0.3.2"
 ```
 this can be solved, for example, like this:
 ```rust
@@ -132,7 +132,10 @@ eg: `impl_match! { (ns ) `...
 
 - [A detailed description of the `impl_match!` macro - in the documentation](https://docs.rs/methods-enum/latest/methods_enum/macro.impl_match.html#impl_match-macro-details).
 
-- [Code examples with `impl_match!`](https://github.com/vvshard/methods-enum/tree/master/tests/impl_match).
+- [Code examples with `impl_match!` from tests](https://github.com/vvshard/methods-enum/tree/master/tests/impl_match).
+
+- [An example of using `impl_match!` in the GUI](https://github.com/vvshard/player-egui-impl_match):   
+![](https://raw.githubusercontent.com/vvshard/player-egui-impl_match/master/screenshot.png)
 ___
 # gen() macro
 
@@ -225,7 +228,7 @@ where:
 
 - [Detailed description of macro `#[gen(....)]` - in documentation](https://docs.rs/methods-enum/latest/methods_enum/attr.gen.html#gen-macro-details-and-use-cases).
 
-- [Code examples with `#[gen(....)]`](https://github.com/vvshard/methods-enum/tree/master/tests/gen).
+- [Code examples with `#[gen(....)]` from tests](https://github.com/vvshard/methods-enum/tree/master/tests/gen).
 ___
 The gen() macro loses out to impl_match! in terms of [restrictions](https://docs.rs/methods-enum/latest/methods_enum/attr.gen.html#restrictions) and ease of working with methods and their output values.
 The benefit of gen() is that it allows you to see the full match-expression and handle more complex logic, including those with non-trivial incoming expressions, match guards, and nested matches from substate enums.

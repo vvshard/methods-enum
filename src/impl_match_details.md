@@ -87,7 +87,10 @@ The `!` flag can be used to view errors found by the macro itself rather than by
 
 ## Links
 
-- [Code examples with `impl_match!` macro](https://github.com/vvshard/methods-enum/tree/master/tests/impl_match).
+- [Code examples with `impl_match!` from tests](https://github.com/vvshard/methods-enum/tree/master/tests/impl_match).
+
+- [An example of using `impl_match!` in the GUI](https://github.com/vvshard/player-egui-impl_match):   
+![](https://raw.githubusercontent.com/vvshard/player-egui-impl_match/master/screenshot.png)
 
 
 

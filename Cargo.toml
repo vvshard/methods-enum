@@ -1,6 +1,6 @@
 [package]
 name = "methods-enum"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 authors = ["Vladimir Shardinov <vvshard@gmail.com>"]
 description = "Two macros for easy implementation of 'state' design pattern and other dynamic polymorphism using enum instead of dyn Trait"
